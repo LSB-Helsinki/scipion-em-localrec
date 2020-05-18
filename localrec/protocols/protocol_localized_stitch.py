@@ -63,7 +63,7 @@ class ProtLocalizedStich(ProtPreprocessVolumes):
         form.addParam('useHalMaps', BooleanParam,
                       label="Use two half maps?", important=True,
                       default=False,
-                      help='Stitch half maps seperately')
+                      help='Stitch half maps separately')
         form.addParam('inputSubVolumes', MultiPointerParam,
                       pointerClass='Volume', condition="not useHalMaps",
                       label="Input sub-volumes ", important=True,
@@ -311,7 +311,6 @@ class ProtLocalizedStich(ProtPreprocessVolumes):
         volWithouMask = self._getFileName('volume', 'without_mask', -1, halfString)
         outputVol = self._getOutputFileName(halfString)
 
-
         # Read symmetrized volume and mask
         ih = ImageHandler()
         maskSymImg = ih.createImage()
@@ -398,7 +397,7 @@ class ProtLocalizedStich(ProtPreprocessVolumes):
         if doAlign:
             program = 'xmipp_transform_geometry'
             args = '-i %s --rotate_volume euler %f %f %f -o %s'\
-                   % (objWin, rot, tilt, psi, objWin)
+                   % (objWin, -rot, -tilt, -psi, objWin)
             self.runJob(program,args)
 
         # Shift the sub-volume to its center in the volume
