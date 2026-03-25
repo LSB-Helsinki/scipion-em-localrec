@@ -346,6 +346,7 @@ def create_subparticles(particle, symmetry_matrices, subparticle_vector_list,
     subparticles = []
     subparticles_total += 1
     symmetry_matrix_ids = list(range(1, len(symmetry_matrices) + 1))
+    matrix_items = list(enumerate(symmetry_matrices, start=1))
     if symmetry_operator_ids is None:
         symmetry_operator_ids = list(symmetry_matrix_ids)
     elif len(symmetry_operator_ids) != len(symmetry_matrices):
