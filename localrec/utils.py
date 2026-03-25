@@ -301,9 +301,17 @@ def filter_subparticles(subparticles, filters):
 
 def create_subparticles(particle, symmetry_matrices_with_ids, subparticle_vector_list,
                         part_image_size, randomize, subparticles_total,
-                        align_subparticles, handness, angpix):
+                        align_subparticles, handness, angpix,
+                        symmetry_group_label=None,
+                        symmetry_operator_ids=None):
     """ Obtain all subparticles from a given particle and set
-    the properties of each such subparticle. """
+    the properties of each such subparticle.
+
+    :param symmetry_group_label: User-selected point group label (for example
+        C2, D7, O, I1) written to _symmetryGroup.
+    :param symmetry_operator_ids: Optional 1-based operator IDs aligned with
+        symmetry_matrices iteration, written to _symmetryOperatorId.
+    """
 
     # Euler angles that take particle to the orientation of the model
     matrix_particle = inv(particle.getTransform().getMatrix())

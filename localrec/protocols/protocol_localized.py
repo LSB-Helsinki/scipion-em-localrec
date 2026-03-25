@@ -165,6 +165,7 @@ class ProtLocalizedRecons(ProtParticlePicking, ProtParticles):
                   }
         # convert symmetry to scipion
         sym = self.symGrp.get()
+        symGrpParam = sym
         # symDict = {0: 'C', 1: 'D', 2: 'T', 3: 'O',
         # 4: 'I1', 5: 'I2', 6: 'I3', 7: 'I4'}
         if sym == 0: sym = SYM_CYCLIC
@@ -234,7 +235,9 @@ class ProtLocalizedRecons(ProtParticlePicking, ProtParticles):
                                                self.randomize, 0,
                                                self.alignSubParticles,
                                                self.handness,
-                                               params["pxSize"])
+                                               params["pxSize"],
+                                               symmetryGroupLabel,
+                                               symmetryOperatorIds)
 
             for subpart in subparticles:
                 coord = subpart.getCoordinate()
