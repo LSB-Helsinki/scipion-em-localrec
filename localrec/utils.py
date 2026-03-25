@@ -40,6 +40,7 @@ from pwem.convert.transformations import (vector_norm, unit_vector,
 from pwem.objects.data import Coordinate
 import pwem as em
 import pyworkflow.utils as pwutils
+import pyworkflow.object as pwobj
 from pyworkflow import SCIPION_DEBUG_NOCLEAN
 
 
@@ -412,9 +413,9 @@ def create_subparticles(particle, symmetry_matrices, subparticle_vector_list,
                 ctf.setDefocusV(subpart.getCTF().getDefocusV() + z_ang)
 
             subpart.setCoordinate(coord)
-            subpart._symmetryOperatorId = int(symmetry_operator_id)
+            subpart._symmetryOperatorId = pwobj.Integer(int(symmetry_operator_id))
             if symmetry_group is not None:
-                subpart._symmetryGroup = int(symmetry_group)
+                subpart._symmetryGroup = pwobj.Integer(int(symmetry_group))
             coord._subparticle = subpart.clone()
             subparticles.append(subpart)
 

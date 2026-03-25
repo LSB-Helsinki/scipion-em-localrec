@@ -254,6 +254,16 @@ class TestLocalizedRecons(TestLocalizedReconsBase):
         coordinate = coordinates.getFirstItem()
         self.assertTrue(coordinate.getObjId() == 1)
         self.assertTrue(coordinate.getMicId() == 1)
+        sym_group, operator_id = self._extract_provenance(coordinate)
+        self.assertIsNotNone(sym_group)
+        self.assertIsNotNone(operator_id)
+
+        for i, coord in enumerate(coordinates.iterItems()):
+            sampled_sym_group, sampled_operator_id = self._extract_provenance(coord)
+            self.assertIsNotNone(sampled_sym_group)
+            self.assertIsNotNone(sampled_operator_id)
+            if i >= 20:
+                break
 
     def _extract_provenance(self, coord):
         return get_subparticle_provenance(coord._subparticle)

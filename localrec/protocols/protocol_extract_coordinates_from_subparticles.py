@@ -93,12 +93,13 @@ class ProtExtractCoordSubparticles(ProtParticlePicking, ProtParticles):
         # that subparticle coordinates id  are not unique
         # if we join all the sets of subparticle particle coordinates
         for part in inputSubParticlesSet:
-            coor = part.getCoordinate()
+            coor = part.getCoordinate().clone()
             # micid is used to relate particle and subparticle coordinates
             # we just clean the mic name since it is standard practice
             # in other localrec protocols.
             coor.setMicName(None)
             coor.setObjId(idx)
+            coor._subparticle = part.clone()
             outputSet.append(coor)
             idx += 1
 
@@ -127,4 +128,3 @@ class ProtExtractCoordSubparticles(ProtParticlePicking, ProtParticles):
     def _summary(self):
         summary = []
         return summary
-
