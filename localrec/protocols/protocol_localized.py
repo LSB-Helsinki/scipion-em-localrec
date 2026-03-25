@@ -187,12 +187,11 @@ class ProtLocalizedRecons(ProtParticlePicking, ProtParticles):
         selectedSymmetryMatrixIds = self._parseSymmetryMatrixIds(
             self.symmetryMatrixIds.get(), len(allSymMatrices))
         if selectedSymmetryMatrixIds:
-            symMatricesWithIds = [(matrixId, allSymMatrices[matrixId - 1])
-                                  for matrixId in selectedSymmetryMatrixIds]
+            symMatrices = [symMatrices[matrixId - 1]
+                           for matrixId in selectedSymmetryMatrixIds]
+            operatorIds = selectedSymmetryMatrixIds
         else:
-            # Keep backward-compatible IDs when no subset is provided: 1..N of
-            # the complete symmetry set.
-            symMatricesWithIds = list(enumerate(allSymMatrices, start=1))
+            operatorIds = list(range(1, len(symMatrices) + 1))
 ###ROB                                          n = self.symmetryOrder.get())
 #        for mat in symMatrices:
 #            print (mat)
@@ -236,8 +235,8 @@ class ProtLocalizedRecons(ProtParticlePicking, ProtParticles):
                                                self.alignSubParticles,
                                                self.handness,
                                                params["pxSize"],
-                                               symmetryGroupLabel,
-                                               symmetryOperatorIds)
+                                               symmetry_operator_ids=operatorIds,
+                                               symmetry_group=sym)
 
             for subpart in subparticles:
                 coord = subpart.getCoordinate()
