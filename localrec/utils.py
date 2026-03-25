@@ -331,7 +331,13 @@ def create_subparticles(particle, symmetry_matrices, subparticle_vector_list,
                         align_subparticles, handness, angpix,
                         symmetry_operator_ids=None, symmetry_group=None):
     """ Obtain all subparticles from a given particle and set
-    the properties of each such subparticle. """
+    the properties of each such subparticle.
+
+    :param symmetry_group_label: User-selected point group label (for example
+        C2, D7, O, I1) written to _symmetryGroup.
+    :param symmetry_operator_ids: Optional 1-based operator IDs aligned with
+        symmetry_matrices iteration, written to _symmetryOperatorId.
+    """
 
     # Euler angles that take particle to the orientation of the model
     matrix_particle = inv(particle.getTransform().getMatrix())
@@ -349,12 +355,12 @@ def create_subparticles(particle, symmetry_matrices, subparticle_vector_list,
 
     if randomize:
         # randomize the order of symmetry matrices, prevents preferred views
-        random.shuffle(symmetry_matrix_ids)
+        random.shuffle(matrix_items)
 
     for subparticle_vector in subparticle_vector_list:
         matrix_from_subparticle_vector = subparticle_vector.get_matrix()
 
-        for symmetry_matrix_id in symmetry_matrix_ids:
+        for symmetry_matrix_id, symmetry_matrix in matrix_items:
             # symmetry_matrix_id can be later written out to find out
             # which symmetry matrix created this subparticle
             symmetry_matrix = np.array(symmetry_matrices[symmetry_matrix_id - 1][0:3, 0:3])
