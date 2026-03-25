@@ -41,6 +41,11 @@ from pwem.objects.data import Coordinate
 import pwem as em
 import pyworkflow.utils as pwutils
 from pyworkflow import SCIPION_DEBUG_NOCLEAN
+from pyworkflow.object import Integer, String
+
+
+LOCALREC_SYMMETRY_GROUP_ATTR = '_localrecSymmetryGroup'
+LOCALREC_SYMMETRY_MATRIX_ID_ATTR = '_localrecSymmetryMatrixId'
 
 
 class Vector3:
@@ -301,7 +306,9 @@ def filter_subparticles(subparticles, filters):
 
 def create_subparticles(particle, symmetry_matrices, subparticle_vector_list,
                         part_image_size, randomize, subparticles_total,
-                        align_subparticles, handness, angpix):
+                        align_subparticles, handness, angpix,
+                        symmetry_group_label='',
+                        symmetry_matrix_id_map=None):
     """ Obtain all subparticles from a given particle and set
     the properties of each such subparticle. """
 
@@ -311,7 +318,9 @@ def create_subparticles(particle, symmetry_matrices, subparticle_vector_list,
 
     subparticles = []
     subparticles_total += 1
-    symmetry_matrix_ids = range(1, len(symmetry_matrices) + 1)
+    symmetry_matrix_ids = list(range(1, len(symmetry_matrices) + 1))
+    if symmetry_matrix_id_map is None:
+        symmetry_matrix_id_map = list(symmetry_matrix_ids)
 
     if randomize:
         # randomize the order of symmetry matrices, prevents preferred views
@@ -326,6 +335,10 @@ def create_subparticles(particle, symmetry_matrices, subparticle_vector_list,
             symmetry_matrix = np.array(symmetry_matrices[symmetry_matrix_id - 1][0:3, 0:3])
 
             subpart = particle.clone()
+            setattr(subpart, LOCALREC_SYMMETRY_GROUP_ATTR,
+                    String(symmetry_group_label or ''))
+            setattr(subpart, LOCALREC_SYMMETRY_MATRIX_ID_ATTR,
+                    Integer(symmetry_matrix_id_map[symmetry_matrix_id - 1]))
             m = np.matmul(matrix_particle[0:3, 0:3], (np.matmul(symmetry_matrix.transpose(),
                                                                 matrix_from_subparticle_vector.transpose())))
             angles_org = -1.0 * np.ones(3) * euler_from_matrix(m, 'szyz')
@@ -374,3 +387,17 @@ def create_subparticles(particle, symmetry_matrices, subparticle_vector_list,
             subparticles.append(subpart)
 
     return subparticles
+
+
+def get_subparticle_symmetry_group(obj, defaultValue=''):
+    attr = getattr(obj, LOCALREC_SYMMETRY_GROUP_ATTR, None)
+    if attr is None:
+        return defaultValue
+    return attr.get() if hasattr(attr, 'get') else attr
+
+
+def get_subparticle_symmetry_matrix_id(obj, defaultValue=None):
+    attr = getattr(obj, LOCALREC_SYMMETRY_MATRIX_ID_ATTR, None)
+    if attr is None:
+        return defaultValue
+    return int(attr.get()) if hasattr(attr, 'get') else int(attr)

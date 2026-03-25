@@ -179,13 +179,16 @@ class ProtLocalizedRecons(ProtParticlePicking, ProtParticles):
         elif sym == 9: sym = SYM_I2n3r
         elif sym == 10: sym = SYM_I2n5
         elif sym == 11: sym = SYM_I2n5r
-        symMatrices = getSymmetryMatrices(sym=sym,
-                                          n=self.symmetryOrder.get())
+        symMatricesAll = getSymmetryMatrices(sym=sym,
+                                             n=self.symmetryOrder.get())
         selectedSymmetryMatrixIds = self._parseSymmetryMatrixIds(
-            self.symmetryMatrixIds.get(), len(symMatrices))
-        if selectedSymmetryMatrixIds:
-            symMatrices = [symMatrices[matrixId - 1]
-                           for matrixId in selectedSymmetryMatrixIds]
+            self.symmetryMatrixIds.get(), len(symMatricesAll))
+        if not selectedSymmetryMatrixIds:
+            selectedSymmetryMatrixIds = list(range(1, len(symMatricesAll) + 1))
+
+        symMatrices = [symMatricesAll[matrixId - 1]
+                       for matrixId in selectedSymmetryMatrixIds]
+        symmetryGroupLabel = self._formatSymmetryGroupLabel()
 ###ROB                                          n = self.symmetryOrder.get())
 #        for mat in symMatrices:
 #            print (mat)
@@ -228,7 +231,9 @@ class ProtLocalizedRecons(ProtParticlePicking, ProtParticles):
                                                self.randomize, 0,
                                                self.alignSubParticles,
                                                self.handness,
-                                               params["pxSize"])
+                                               params["pxSize"],
+                                               symmetryGroupLabel,
+                                               selectedSymmetryMatrixIds)
 
             for subpart in subparticles:
                 coord = subpart.getCoordinate()
@@ -291,6 +296,12 @@ class ProtLocalizedRecons(ProtParticlePicking, ProtParticles):
     # -------------------------- UTILS functions ------------------------------
     def _getOutpuVecMetadata(self):
         return self._getExtraPath('output_vectors.xmd')
+
+    def _formatSymmetryGroupLabel(self):
+        symLabel = SCIPION_SYM_NAME[self.symGrp.get()]
+        if symLabel in ('Cn', 'Dn'):
+            return '%s%d' % (symLabel[0], self.symmetryOrder.get())
+        return symLabel
 
     @staticmethod
     def _parseSymmetryMatrixIds(matrixIdsText, nSymmetryMatrices):

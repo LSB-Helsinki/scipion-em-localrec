@@ -34,6 +34,8 @@ from pyworkflow.protocol.params import IntParam
 # eventually progressbar will be move to scipion core
 from pyworkflow.utils import ProgressBar
 from pwem.objects import SetOfParticles
+from localrec.utils import (LOCALREC_SYMMETRY_GROUP_ATTR,
+                            LOCALREC_SYMMETRY_MATRIX_ID_ATTR)
 
 
 class ProtLocalizedExtraction(ProtParticles):
@@ -90,6 +92,7 @@ class ProtLocalizedExtraction(ProtParticles):
 
         i = 0
         outliers = 0
+        missingProvenance = 0
         partIdExcluded = []
         lastPartId = None
 
@@ -139,6 +142,18 @@ class ProtLocalizedExtraction(ProtParticles):
                 i += 1
                 outputImg.write((i, outputStack))
                 subpart = coord._subparticle
+                if (not hasattr(subpart, LOCALREC_SYMMETRY_GROUP_ATTR) and
+                        hasattr(coord, LOCALREC_SYMMETRY_GROUP_ATTR)):
+                    setattr(subpart, LOCALREC_SYMMETRY_GROUP_ATTR,
+                            getattr(coord, LOCALREC_SYMMETRY_GROUP_ATTR))
+                if (not hasattr(subpart, LOCALREC_SYMMETRY_MATRIX_ID_ATTR) and
+                        hasattr(coord, LOCALREC_SYMMETRY_MATRIX_ID_ATTR)):
+                    setattr(subpart, LOCALREC_SYMMETRY_MATRIX_ID_ATTR,
+                            getattr(coord, LOCALREC_SYMMETRY_MATRIX_ID_ATTR))
+
+                if (not hasattr(subpart, LOCALREC_SYMMETRY_GROUP_ATTR) or
+                        not hasattr(subpart, LOCALREC_SYMMETRY_MATRIX_ID_ATTR)):
+                    missingProvenance += 1
                 subpart.setLocation(
                     (i, outputStack))  # Change path to new stack
                 subpart.setObjId(i)  # Ids will be always the same no mater the number of outliers 
@@ -148,6 +163,9 @@ class ProtLocalizedExtraction(ProtParticles):
         if outliers:
             self.info("WARNING: Discarded %s particles because laid out of the "
                       "particle (for a box size of %d" % (outliers, boxSize))
+        if missingProvenance:
+            self.info("WARNING: Missing symmetry provenance in %d subparticles."
+                      % missingProvenance)
         outputSet.setIsSubparticles(True)
         self._defineOutputs(**{self.OUTPUTPARTICLESNAME: outputSet})
         self._defineSourceRelation(self.inputParticles, outputSet)

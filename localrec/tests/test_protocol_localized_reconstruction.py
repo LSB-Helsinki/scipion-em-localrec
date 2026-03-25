@@ -87,6 +87,16 @@ class TestLocalizedRecons(TestLocalizedReconsBase):
 
     #         cls.protImportVol = cls.runImportVolumes(cls.vol, 1)
 
+    def _assertSymmetryProvenance(self, subparticle, expectedGroup='I1',
+                                  validMatrixIds=None):
+        self.assertTrue(hasattr(subparticle, LOCALREC_SYMMETRY_GROUP_ATTR))
+        self.assertTrue(hasattr(subparticle, LOCALREC_SYMMETRY_MATRIX_ID_ATTR))
+        symmetryGroup = get_subparticle_symmetry_group(subparticle)
+        symmetryMatrixId = get_subparticle_symmetry_matrix_id(subparticle)
+        self.assertEqual(expectedGroup, symmetryGroup)
+        if validMatrixIds is not None:
+            self.assertTrue(symmetryMatrixId in validMatrixIds)
+
     def _runSubparticles(self, checkSize, angles, defVector=0, **kwargs):
         label = 'define subpartices ('
         for t in kwargs.items():
@@ -113,6 +123,7 @@ class TestLocalizedRecons(TestLocalizedReconsBase):
         self.assertEqual(checkSize, prot.outputCoordinates.getSize())
 
         coord = prot.outputCoordinates[10]
+        self._assertSymmetryProvenance(coord._subparticle)
         cShifts, cAngles = geometryFromMatrix(inv((coord._subparticle.getTransform().getMatrix())))
         cAngles = [math.degrees(cAngles[j]) for j in range(len(cAngles))]
 
@@ -216,6 +227,12 @@ class TestLocalizedRecons(TestLocalizedReconsBase):
         # Test for filter sub-particles which are aligned in the z
         localSubparticlesAligned = self._runSubparticles(600, [-177.8, 5.5, 0.5], alignSubParticles=True)
         localSubparticles = self._runSubparticles(600, [-1.2, 111.6, -177.4], alignSubParticles=False)
+        selectedSymmetry = self._runSubparticles(300, [-177.8, 5.5, 0.5],
+                                                 alignSubParticles=True,
+                                                 symmetryMatrixIds='1,3,5')
+        firstSelectedSubparticle = selectedSymmetry.outputCoordinates.getFirstItem()._subparticle
+        self._assertSymmetryProvenance(firstSelectedSubparticle,
+                                       validMatrixIds=[1, 3, 5])
 
         # Test for filter sub-particles which are aligned in the z
         localUniqueAligend = self._runFilterSubParticles(120, [149.0, 64.9, 73.2], localSubparticlesAligned, unique=5)
@@ -244,6 +261,8 @@ class TestLocalizedRecons(TestLocalizedReconsBase):
         self.assertIsNotNone(localExtraction.outputParticles,
                              "There was a problem with localized "
                              "extraction protocol")
+        extractedSubparticle = localExtraction.outputParticles.getFirstItem()
+        self._assertSymmetryProvenance(extractedSubparticle)
         extractCoordSubparticles = self.newProtocol(ProtExtractCoordSubparticles,
                                                     inputSubParticles=localExtraction.outputParticles,
                                                     inputParticles=self.protImport.outputParticles)
@@ -254,6 +273,8 @@ class TestLocalizedRecons(TestLocalizedReconsBase):
         coordinate = coordinates.getFirstItem()
         self.assertTrue(coordinate.getObjId() == 1)
         self.assertTrue(coordinate.getMicId() == 1)
+        self.assertTrue(hasattr(coordinate, LOCALREC_SYMMETRY_GROUP_ATTR))
+        self.assertTrue(hasattr(coordinate, LOCALREC_SYMMETRY_MATRIX_ID_ATTR))
 
     def testSetOrigin(self):
         # create set of coordinates and localize protocol

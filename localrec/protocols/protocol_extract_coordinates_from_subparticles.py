@@ -40,6 +40,8 @@ from localrec.utils import load_vectors, create_subparticles
 from localrec.constants import CMM, HAND
 from pyworkflow.utils import ProgressBar
 from pwem.objects import SetOfCoordinates
+from localrec.utils import (LOCALREC_SYMMETRY_GROUP_ATTR,
+                            LOCALREC_SYMMETRY_MATRIX_ID_ATTR)
 
 
 class ProtExtractCoordSubparticles(ProtParticlePicking, ProtParticles):
@@ -88,6 +90,7 @@ class ProtExtractCoordSubparticles(ProtParticlePicking, ProtParticles):
         boxsize = 0.1 * inputParticlesSet.getXDim()
         outputSet.setBoxSize(boxsize)
         idx = 1  # counter to make coordinates id unique
+        missingProvenance = 0
 
         # the problem that we try to solve here is
         # that subparticle coordinates id  are not unique
@@ -99,8 +102,21 @@ class ProtExtractCoordSubparticles(ProtParticlePicking, ProtParticles):
             # in other localrec protocols.
             coor.setMicName(None)
             coor.setObjId(idx)
+            if hasattr(part, LOCALREC_SYMMETRY_GROUP_ATTR):
+                setattr(coor, LOCALREC_SYMMETRY_GROUP_ATTR,
+                        getattr(part, LOCALREC_SYMMETRY_GROUP_ATTR))
+            if hasattr(part, LOCALREC_SYMMETRY_MATRIX_ID_ATTR):
+                setattr(coor, LOCALREC_SYMMETRY_MATRIX_ID_ATTR,
+                        getattr(part, LOCALREC_SYMMETRY_MATRIX_ID_ATTR))
+            if (not hasattr(coor, LOCALREC_SYMMETRY_GROUP_ATTR) or
+                    not hasattr(coor, LOCALREC_SYMMETRY_MATRIX_ID_ATTR)):
+                missingProvenance += 1
             outputSet.append(coor)
             idx += 1
+
+        if missingProvenance:
+            self.warning('Symmetry provenance was missing for %d coordinates.'
+                         % missingProvenance)
 
         self._defineOutputs(**{self.OUTPUTCOORDINATESNAME: outputSet})
         self._defineSourceRelation(inputSubParticlesSet, outputSet)
@@ -127,4 +143,3 @@ class ProtExtractCoordSubparticles(ProtParticlePicking, ProtParticles):
     def _summary(self):
         summary = []
         return summary
-

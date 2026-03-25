@@ -16,6 +16,8 @@ import os
 from pyworkflow import VERSION_3_0
 from pyworkflow.protocol.params import PointerParam, IntParam, StringParam
 from pwem.protocols import ProtParticles
+from localrec.utils import (get_subparticle_symmetry_group,
+                            get_subparticle_symmetry_matrix_id)
 
 
 class ProtSubparticleStatistics(ProtParticles):
@@ -78,8 +80,9 @@ class ProtSubparticleStatistics(ProtParticles):
                                          allow_empty=True)
 
         per_particle_counts = {}
+        provenance = {'missing': 0, 'byMatrixId': {}, 'bySymmetryGroup': {}}
 
-        for parent_id, class_id in self._iterAssignments(classification):
+        for parent_id, class_id, symmetry_group, symmetry_matrix_id in self._iterAssignments(classification):
             if parent_id not in per_particle_counts:
                 per_particle_counts[parent_id] = [0, 0]
 
@@ -89,16 +92,28 @@ class ProtSubparticleStatistics(ProtParticles):
             if group2_ids and class_id in group2_ids:
                 per_particle_counts[parent_id][1] += 1
 
+            if symmetry_group in (None, '') or symmetry_matrix_id is None:
+                provenance['missing'] += 1
+            else:
+                provenance['bySymmetryGroup'][symmetry_group] = (
+                    provenance['bySymmetryGroup'].get(symmetry_group, 0) + 1)
+                key = str(symmetry_matrix_id)
+                provenance['byMatrixId'][key] = provenance['byMatrixId'].get(key, 0) + 1
+
         if not per_particle_counts:
             raise Exception('No subparticle assignments found in the selected '
                             'classification input.')
+        if provenance['missing']:
+            self.warning('Symmetry provenance was missing for %d assignments.'
+                         % provenance['missing'])
 
         if group2_ids:
-            self._write2DHistogram(per_particle_counts, group1_ids, group2_ids)
+            self._write2DHistogram(per_particle_counts, group1_ids, group2_ids,
+                                   provenance)
         else:
-            self._write1DHistogram(per_particle_counts, group1_ids)
+            self._write1DHistogram(per_particle_counts, group1_ids, provenance)
 
-    def _write1DHistogram(self, per_particle_counts, group1_ids):
+    def _write1DHistogram(self, per_particle_counts, group1_ids, provenance):
         counts_group1 = [count_pair[0] for count_pair in per_particle_counts.values()]
 
         auto_n = max(counts_group1)
@@ -124,6 +139,7 @@ class ProtSubparticleStatistics(ProtParticles):
             'maxCount': n,
             'overflow': overflow,
             'totalParticles': len(per_particle_counts),
+            'symmetryProvenance': provenance,
             'bins': bins,
             'counts': [histogram[k] for k in bins]
         }
@@ -138,7 +154,8 @@ class ProtSubparticleStatistics(ProtParticles):
             for k in bins:
                 writer.writerow([k, histogram[k]])
 
-    def _write2DHistogram(self, per_particle_counts, group1_ids, group2_ids):
+    def _write2DHistogram(self, per_particle_counts, group1_ids, group2_ids,
+                          provenance):
         pairs = [tuple(count_pair) for count_pair in per_particle_counts.values()]
         x_auto = max(pair[0] for pair in pairs)
         y_auto = max(pair[1] for pair in pairs)
@@ -170,6 +187,7 @@ class ProtSubparticleStatistics(ProtParticles):
             'maxCount': n,
             'overflow': overflow,
             'totalParticles': len(per_particle_counts),
+            'symmetryProvenance': provenance,
             'points': points
         }
 
@@ -196,7 +214,7 @@ class ProtSubparticleStatistics(ProtParticles):
         return self._getExtraPath('histogram.json'), self._getExtraPath('histogram.csv')
 
     def _iterAssignments(self, classification):
-        """Yield tuples: (parent_particle_id, class_id)."""
+        """Yield tuples: (parent_particle_id, class_id, symmetry_group, symmetry_matrix_id)."""
         for cls in classification:
             class_id = self._getClassId(cls)
             if hasattr(cls, 'iterItems'):
@@ -205,7 +223,18 @@ class ProtSubparticleStatistics(ProtParticles):
                 cls_items = cls
             for item in cls_items:
                 parent_id = self._getParentParticleId(item)
-                yield parent_id, class_id
+                symmetry_group, symmetry_matrix_id = self._getSymmetryProvenance(item)
+                yield parent_id, class_id, symmetry_group, symmetry_matrix_id
+
+    @staticmethod
+    def _getSymmetryProvenance(subparticle):
+        if hasattr(subparticle, 'getCoordinate'):
+            coord = subparticle.getCoordinate()
+            if coord is not None:
+                return (get_subparticle_symmetry_group(coord),
+                        get_subparticle_symmetry_matrix_id(coord))
+        return (get_subparticle_symmetry_group(subparticle),
+                get_subparticle_symmetry_matrix_id(subparticle))
 
     @staticmethod
     def _getClassId(cls):
