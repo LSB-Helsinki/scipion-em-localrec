@@ -37,6 +37,31 @@ from tempfile import NamedTemporaryFile
 from xmipp3.protocols import XmippProtCreateMask3D
 import pwem.protocols as emprot
 import numpy as np
+from localrec.constants import symDict
+
+
+def get_subparticle_symmetry_group(subparticle):
+    """Return symmetry group provenance label written in subparticles."""
+    symmetry_group = getattr(subparticle, '_symmetryGroup', None)
+    symmetry_order = getattr(subparticle, '_symmetryOrder', None)
+
+    if hasattr(symmetry_group, 'get'):
+        symmetry_group = symmetry_group.get()
+    if hasattr(symmetry_order, 'get'):
+        symmetry_order = symmetry_order.get()
+
+    if isinstance(symmetry_group, str):
+        if symmetry_group in ('C', 'D') and symmetry_order:
+            return '%s%d' % (symmetry_group, int(symmetry_order))
+        return symmetry_group
+
+    if isinstance(symmetry_group, int):
+        label = symDict.get(symmetry_group)
+        if label in ('C', 'D') and symmetry_order:
+            return '%s%d' % (label, int(symmetry_order))
+        return label
+
+    return None
 
 # Some utility functions to import micrographs that are used
 # in several tests.
@@ -87,7 +112,8 @@ class TestLocalizedRecons(TestLocalizedReconsBase):
 
     #         cls.protImportVol = cls.runImportVolumes(cls.vol, 1)
 
-    def _runSubparticles(self, checkSize, angles, defVector=0, **kwargs):
+    def _runSubparticles(self, checkSize, angles, defVector=0,
+                         symGrp=SYM_I222, symmetryOrder=1, **kwargs):
         label = 'define subpartices ('
         for t in kwargs.items():
             label += '%s=%s' % t
@@ -95,7 +121,8 @@ class TestLocalizedRecons(TestLocalizedReconsBase):
 
         prot = self.newProtocol(ProtLocalizedRecons,
                                 objLabel=label,
-                                symGrp=SYM_I222, #  symDict['I3'],
+                                symGrp=symGrp, #  symDict['I3'],
+                                symmetryOrder=symmetryOrder,
                                 defineVector=defVector,
                                 **kwargs)
         prot.inputParticles.set(self.protImport.outputParticles)
@@ -110,7 +137,8 @@ class TestLocalizedRecons(TestLocalizedReconsBase):
         self.assertIsNotNone(prot.outputCoordinates,
                              "There was a problem with localized "
                              "subparticles protocol")
-        self.assertEqual(checkSize, prot.outputCoordinates.getSize())
+        if checkSize is not None:
+            self.assertEqual(checkSize, prot.outputCoordinates.getSize())
 
         coord = prot.outputCoordinates[10]
         cShifts, cAngles = geometryFromMatrix(inv((coord._subparticle.getTransform().getMatrix())))
@@ -138,6 +166,11 @@ class TestLocalizedRecons(TestLocalizedReconsBase):
                                        cAngles[2], angles[2]))
 
         return prot
+
+    def _assertSymmetryProvenance(self, protocol, expectedLabel):
+        subparticle = protocol.outputCoordinates.getFirstItem()._subparticle
+        self.assertEqual(get_subparticle_symmetry_group(subparticle),
+                         expectedLabel)
 
     def _runFilterSubParticles(self, checkSize, angles, subParticles, **kwargs):
         label = 'filter subpartices ('
@@ -343,3 +376,19 @@ sph = 1 '0 0 0' '48'
         self.assertAlmostEqual(x, new_orig[0], places=1)
         self.assertAlmostEqual(y, new_orig[1], places=1)
         self.assertAlmostEqual(z, new_orig[2], places=1)
+
+    def testSubparticleSymmetryProvenanceLabels(self):
+        icosahedral = self._runSubparticles(
+            600, [-177.8, 5.5, 0.5], alignSubParticles=True,
+            symGrp=SYM_I222)
+        self._assertSymmetryProvenance(icosahedral, 'I1')
+
+        cyclic = self._runSubparticles(
+            None, [106.2, 112.6, -177.6], alignSubParticles=True,
+            symGrp=SYM_CYCLIC, symmetryOrder=5)
+        self._assertSymmetryProvenance(cyclic, 'C5')
+
+        dihedral = self._runSubparticles(
+            None, [106.2, 112.6, -177.6], alignSubParticles=True,
+            symGrp=SYM_DIHEDRAL, symmetryOrder=7)
+        self._assertSymmetryProvenance(dihedral, 'D7')
