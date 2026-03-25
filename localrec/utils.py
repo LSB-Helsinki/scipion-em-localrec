@@ -299,7 +299,7 @@ def filter_subparticles(subparticles, filters):
             if all(f(subparticles, sp) for f in filters)]
 
 
-def create_subparticles(particle, symmetry_matrices, subparticle_vector_list,
+def create_subparticles(particle, symmetry_matrices_with_ids, subparticle_vector_list,
                         part_image_size, randomize, subparticles_total,
                         align_subparticles, handness, angpix):
     """ Obtain all subparticles from a given particle and set
@@ -311,19 +311,19 @@ def create_subparticles(particle, symmetry_matrices, subparticle_vector_list,
 
     subparticles = []
     subparticles_total += 1
-    symmetry_matrix_ids = range(1, len(symmetry_matrices) + 1)
-
+    matrix_items = list(symmetry_matrices_with_ids)
     if randomize:
         # randomize the order of symmetry matrices, prevents preferred views
-        random.shuffle(symmetry_matrix_ids)
+        random.shuffle(matrix_items)
 
     for subparticle_vector in subparticle_vector_list:
         matrix_from_subparticle_vector = subparticle_vector.get_matrix()
 
-        for symmetry_matrix_id in symmetry_matrix_ids:
+        for symmetry_matrix_id, symmetry_matrix in matrix_items:
             # symmetry_matrix_id can be later written out to find out
-            # which symmetry matrix created this subparticle
-            symmetry_matrix = np.array(symmetry_matrices[symmetry_matrix_id - 1][0:3, 0:3])
+            # which symmetry matrix created this subparticle. It must refer to
+            # the original full symmetry-set ID.
+            symmetry_matrix = np.array(symmetry_matrix[0:3, 0:3])
 
             subpart = particle.clone()
             m = np.matmul(matrix_particle[0:3, 0:3], (np.matmul(symmetry_matrix.transpose(),
@@ -370,6 +370,7 @@ def create_subparticles(particle, symmetry_matrices, subparticle_vector_list,
                 ctf.setDefocusV(subpart.getCTF().getDefocusV() + z_ang)
 
             subpart.setCoordinate(coord)
+            coord._symmetryOperatorId = symmetry_matrix_id
             coord._subparticle = subpart.clone()
             subparticles.append(subpart)
 

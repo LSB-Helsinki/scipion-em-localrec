@@ -179,13 +179,19 @@ class ProtLocalizedRecons(ProtParticlePicking, ProtParticles):
         elif sym == 9: sym = SYM_I2n3r
         elif sym == 10: sym = SYM_I2n5
         elif sym == 11: sym = SYM_I2n5r
-        symMatrices = getSymmetryMatrices(sym=sym,
-                                          n=self.symmetryOrder.get())
+        allSymMatrices = getSymmetryMatrices(sym=sym,
+                                             n=self.symmetryOrder.get())
+        # NOTE: selectedSymmetryMatrixIds are always 1-based IDs that refer to
+        # the full symmetry set (allSymMatrices), never to a filtered position.
         selectedSymmetryMatrixIds = self._parseSymmetryMatrixIds(
-            self.symmetryMatrixIds.get(), len(symMatrices))
+            self.symmetryMatrixIds.get(), len(allSymMatrices))
         if selectedSymmetryMatrixIds:
-            symMatrices = [symMatrices[matrixId - 1]
-                           for matrixId in selectedSymmetryMatrixIds]
+            symMatricesWithIds = [(matrixId, allSymMatrices[matrixId - 1])
+                                  for matrixId in selectedSymmetryMatrixIds]
+        else:
+            # Keep backward-compatible IDs when no subset is provided: 1..N of
+            # the complete symmetry set.
+            symMatricesWithIds = list(enumerate(allSymMatrices, start=1))
 ###ROB                                          n = self.symmetryOrder.get())
 #        for mat in symMatrices:
 #            print (mat)
@@ -222,7 +228,7 @@ class ProtLocalizedRecons(ProtParticlePicking, ProtParticles):
             if i % step == 0:
                 progress.update(i+1)
 
-            subparticles = create_subparticles(part, symMatrices,
+            subparticles = create_subparticles(part, symMatricesWithIds,
                                                subpartVectorList,
                                                params["dim"],
                                                self.randomize, 0,
