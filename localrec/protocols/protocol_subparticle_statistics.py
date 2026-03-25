@@ -21,10 +21,17 @@ from pwem.protocols import ProtParticles
 class ProtSubparticleStatistics(ProtParticles):
     """Compute class-occupancy statistics for subparticles.
 
-    Histogram type 1:
-        - X axis categories: number of subparticles assigned to class ID(s) per
-          original particle (0..N).
+    1D mode (group 1 only):
+        - X axis categories: number of subparticles assigned to class ID(s)
+          per original particle (0..N).
         - Y axis: number of original particles in each category.
+
+    2D mode (group 1 + group 2):
+        - X axis categories: number of subparticles assigned to class ID(s)
+          in group 1 per original particle.
+        - Y axis categories: number of subparticles assigned to class ID(s)
+          in group 2 per original particle.
+        - Frequency: number of original particles with each (X, Y) pair.
     """
 
     _label = 'subparticle statistics'
@@ -44,10 +51,17 @@ class ProtSubparticleStatistics(ProtParticles):
                       help='Class ID or comma-separated class IDs used to '
                            'compute occupancy histogram. Example: 1,2,5')
 
+        form.addParam('targetClass2', StringParam, default='',
+                      label='Class ID(s) group 2 (optional)',
+                      help='Optional second class group (single ID or '
+                           'comma-separated IDs). If provided, a 2D histogram '
+                           'is computed and exported.')
+
         form.addParam('maxCount', IntParam, default=-1,
                       label='Maximum count N (optional)',
-                      help='If > 0, force histogram bins 0..N. If <= 0, N is '
-                           'automatically inferred from classification data.')
+                      help='If > 0, force histogram limits up to N. If <= 0, '
+                           'limits are automatically inferred from '
+                           'classification data.')
 
         form.addParallelSection(threads=0, mpi=0)
 
@@ -56,33 +70,43 @@ class ProtSubparticleStatistics(ProtParticles):
 
     def computeStatisticsStep(self):
         classification = self.inputClassification.get()
+        group1_ids = self._parseClassIds(self.targetClass.get(),
+                                         'Class ID(s)',
+                                         allow_empty=False)
+        group2_ids = self._parseClassIds(self.targetClass2.get(),
+                                         'Class ID(s) group 2 (optional)',
+                                         allow_empty=True)
 
-        per_particle_count = {}
-        target_class_ids = self._parseTargetClassIds()
+        per_particle_counts = {}
 
         for parent_id, class_id in self._iterAssignments(classification):
-            if parent_id not in per_particle_count:
-                per_particle_count[parent_id] = 0
-            if class_id in target_class_ids:
-                per_particle_count[parent_id] += 1
+            if parent_id not in per_particle_counts:
+                per_particle_counts[parent_id] = [0, 0]
 
-        if not per_particle_count:
+            if class_id in group1_ids:
+                per_particle_counts[parent_id][0] += 1
+
+            if group2_ids and class_id in group2_ids:
+                per_particle_counts[parent_id][1] += 1
+
+        if not per_particle_counts:
             raise Exception('No subparticle assignments found in the selected '
                             'classification input.')
 
-        auto_n = max(per_particle_count.values())
-        user_n = int(self.maxCount.get())
-        n = user_n if user_n > 0 else auto_n
+        if group2_ids:
+            self._write2DHistogram(per_particle_counts, group1_ids, group2_ids)
+        else:
+            self._write1DHistogram(per_particle_counts, group1_ids)
 
-        if n < auto_n:
-            self.warning('Provided maxCount (%d) is smaller than observed '
-                         'maximum (%d). Using observed maximum.' % (n, auto_n))
-            n = auto_n
+    def _write1DHistogram(self, per_particle_counts, group1_ids):
+        counts_group1 = [count_pair[0] for count_pair in per_particle_counts.values()]
+
+        auto_n = max(counts_group1)
+        n = self._resolveMaxCount(auto_n)
 
         histogram = {k: 0 for k in range(n + 1)}
         overflow = 0
-
-        for count in per_particle_count.values():
+        for count in counts_group1:
             if count <= n:
                 histogram[count] += 1
             else:
@@ -93,22 +117,18 @@ class ProtSubparticleStatistics(ProtParticles):
                          'grouped in overflow.' % (overflow, n))
 
         bins = list(range(n + 1))
-        counts = [histogram[k] for k in bins]
-
         data = {
-            'histogramType': 1,
+            'mode': '1d',
             'targetClass': self.targetClass.get(),
-            'targetClassIds': sorted(target_class_ids),
+            'targetClassIds': sorted(group1_ids),
             'maxCount': n,
             'overflow': overflow,
-            'totalParticles': len(per_particle_count),
+            'totalParticles': len(per_particle_counts),
             'bins': bins,
-            'counts': counts
+            'counts': [histogram[k] for k in bins]
         }
 
-        json_path = self._getExtraPath('histogram_type1.json')
-        csv_path = self._getExtraPath('histogram_type1.csv')
-
+        json_path, csv_path = self._getHistogramPaths()
         with open(json_path, 'w') as handle:
             json.dump(data, handle, indent=2)
 
@@ -118,7 +138,62 @@ class ProtSubparticleStatistics(ProtParticles):
             for k in bins:
                 writer.writerow([k, histogram[k]])
 
-        self._histSummary = data
+    def _write2DHistogram(self, per_particle_counts, group1_ids, group2_ids):
+        pairs = [tuple(count_pair) for count_pair in per_particle_counts.values()]
+        x_auto = max(pair[0] for pair in pairs)
+        y_auto = max(pair[1] for pair in pairs)
+        n = self._resolveMaxCount(max(x_auto, y_auto))
+
+        matrix = {}
+        overflow = 0
+        for x_count, y_count in pairs:
+            if x_count <= n and y_count <= n:
+                key = (x_count, y_count)
+                matrix[key] = matrix.get(key, 0) + 1
+            else:
+                overflow += 1
+
+        points = []
+        for key in sorted(matrix.keys()):
+            points.append({'x': key[0], 'y': key[1], 'frequency': matrix[key]})
+
+        if overflow:
+            self.warning('%d particles exceeded maximum limits N=%d and were '
+                         'grouped in overflow.' % (overflow, n))
+
+        data = {
+            'mode': '2d',
+            'targetClass': self.targetClass.get(),
+            'targetClassIds': sorted(group1_ids),
+            'targetClass2': self.targetClass2.get(),
+            'targetClass2Ids': sorted(group2_ids),
+            'maxCount': n,
+            'overflow': overflow,
+            'totalParticles': len(per_particle_counts),
+            'points': points
+        }
+
+        json_path, csv_path = self._getHistogramPaths()
+        with open(json_path, 'w') as handle:
+            json.dump(data, handle, indent=2)
+
+        with open(csv_path, 'w') as handle:
+            writer = csv.writer(handle)
+            writer.writerow(['x_count_group1', 'y_count_group2', 'particle_frequency'])
+            for point in points:
+                writer.writerow([point['x'], point['y'], point['frequency']])
+
+    def _resolveMaxCount(self, auto_n):
+        user_n = int(self.maxCount.get())
+        n = user_n if user_n > 0 else auto_n
+        if n < auto_n:
+            self.warning('Provided maxCount (%d) is smaller than observed '
+                         'maximum (%d). Using observed maximum.' % (n, auto_n))
+            n = auto_n
+        return n
+
+    def _getHistogramPaths(self):
+        return self._getExtraPath('histogram.json'), self._getExtraPath('histogram.csv')
 
     def _iterAssignments(self, classification):
         """Yield tuples: (parent_particle_id, class_id)."""
@@ -154,16 +229,9 @@ class ProtSubparticleStatistics(ProtParticles):
 
         raise Exception('Could not read parent particle id for subparticle.')
 
-    def _validate(self):
-        errors = []
-        try:
-            self._parseTargetClassIds()
-        except Exception as ex:
-            errors.append(str(ex))
-        return errors
-
-    def _parseTargetClassIds(self):
-        raw_value = self.targetClass.get()
+    def _parseClassIds(self, raw_value, param_label, allow_empty):
+        if raw_value is None:
+            raw_value = ''
         raw_items = [x.strip() for x in str(raw_value).split(',')]
         class_ids = set()
 
@@ -173,24 +241,50 @@ class ProtSubparticleStatistics(ProtParticles):
             try:
                 value = int(item)
             except Exception:
-                raise Exception('Class ID(s) must be integer values separated '
-                                'by commas. Example: 1,2,5')
+                raise Exception('%s must be integer values separated by '
+                                'commas. Example: 1,2,5' % param_label)
             if value < 1:
-                raise Exception('Class ID(s) must be >= 1.')
+                raise Exception('%s must be >= 1.' % param_label)
             class_ids.add(value)
 
-        if not class_ids:
-            raise Exception('Class ID(s) can not be empty.')
+        if not class_ids and not allow_empty:
+            raise Exception('%s can not be empty.' % param_label)
 
         return class_ids
 
+    def _validate(self):
+        errors = []
+        try:
+            group1 = self._parseClassIds(self.targetClass.get(),
+                                         'Class ID(s)',
+                                         allow_empty=False)
+            group2 = self._parseClassIds(self.targetClass2.get(),
+                                         'Class ID(s) group 2 (optional)',
+                                         allow_empty=True)
+            overlap = group1.intersection(group2)
+            if overlap:
+                errors.append('Class ID(s) and Class ID(s) group 2 (optional) '
+                              'must not overlap. Overlap: %s' % sorted(overlap))
+        except Exception as ex:
+            errors.append(str(ex))
+        return errors
+
     def _summary(self):
         summary = []
-        json_path = self._getExtraPath('histogram_type1.json')
+        json_path, csv_path = self._getHistogramPaths()
         if os.path.exists(json_path):
-            summary.append('Occupancy histogram computed for class ID(s): %s.'
-                           % self.targetClass.get())
+            group2 = self._parseClassIds(self.targetClass2.get(),
+                                         'Class ID(s) group 2 (optional)',
+                                         allow_empty=True)
+            if group2:
+                summary.append('2D occupancy histogram computed for class ID '
+                               'groups: [%s] vs [%s].'
+                               % (self.targetClass.get(), self.targetClass2.get()))
+            else:
+                summary.append('Occupancy histogram computed for class ID(s): %s.'
+                               % self.targetClass.get())
             summary.append('Results: %s' % json_path)
+            summary.append('Results: %s' % csv_path)
         return summary
 
     def _methods(self):
