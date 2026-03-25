@@ -186,6 +186,9 @@ class ProtLocalizedRecons(ProtParticlePicking, ProtParticles):
         if selectedSymmetryMatrixIds:
             symMatrices = [symMatrices[matrixId - 1]
                            for matrixId in selectedSymmetryMatrixIds]
+            operatorIds = selectedSymmetryMatrixIds
+        else:
+            operatorIds = list(range(1, len(symMatrices) + 1))
 ###ROB                                          n = self.symmetryOrder.get())
 #        for mat in symMatrices:
 #            print (mat)
@@ -228,7 +231,9 @@ class ProtLocalizedRecons(ProtParticlePicking, ProtParticles):
                                                self.randomize, 0,
                                                self.alignSubParticles,
                                                self.handness,
-                                               params["pxSize"])
+                                               params["pxSize"],
+                                               symmetry_operator_ids=operatorIds,
+                                               symmetry_group=sym)
 
             for subpart in subparticles:
                 coord = subpart.getCoordinate()

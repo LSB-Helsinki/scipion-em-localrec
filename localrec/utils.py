@@ -299,9 +299,37 @@ def filter_subparticles(subparticles, filters):
             if all(f(subparticles, sp) for f in filters)]
 
 
+def _safe_get_obj_attr_value(obj, attr_name, default=None):
+    """Read an attribute value handling both wrapped and raw values."""
+    if obj is None or not hasattr(obj, attr_name):
+        return default
+
+    value = getattr(obj, attr_name)
+    if hasattr(value, 'get'):
+        try:
+            value = value.get()
+        except Exception:
+            return default
+
+    return value if value is not None else default
+
+
+def get_subparticle_provenance(subparticle, default_group=None, default_operator=None):
+    """Return (symmetry_group, symmetry_operator_id) from a subparticle-like object."""
+    sym_group = _safe_get_obj_attr_value(subparticle, '_symmetryGroup', default_group)
+    operator_id = _safe_get_obj_attr_value(subparticle, '_symmetryOperatorId', default_operator)
+    return sym_group, operator_id
+
+
+def has_subparticle_provenance(subparticle):
+    sym_group, operator_id = get_subparticle_provenance(subparticle)
+    return sym_group is not None and operator_id is not None
+
+
 def create_subparticles(particle, symmetry_matrices, subparticle_vector_list,
                         part_image_size, randomize, subparticles_total,
-                        align_subparticles, handness, angpix):
+                        align_subparticles, handness, angpix,
+                        symmetry_operator_ids=None, symmetry_group=None):
     """ Obtain all subparticles from a given particle and set
     the properties of each such subparticle. """
 
@@ -311,7 +339,13 @@ def create_subparticles(particle, symmetry_matrices, subparticle_vector_list,
 
     subparticles = []
     subparticles_total += 1
-    symmetry_matrix_ids = range(1, len(symmetry_matrices) + 1)
+    symmetry_matrix_ids = list(range(1, len(symmetry_matrices) + 1))
+    if symmetry_operator_ids is None:
+        symmetry_operator_ids = list(symmetry_matrix_ids)
+    elif len(symmetry_operator_ids) != len(symmetry_matrices):
+        raise ValueError('symmetry_operator_ids length (%d) does not match '
+                         'symmetry_matrices length (%d).'
+                         % (len(symmetry_operator_ids), len(symmetry_matrices)))
 
     if randomize:
         # randomize the order of symmetry matrices, prevents preferred views
@@ -324,6 +358,7 @@ def create_subparticles(particle, symmetry_matrices, subparticle_vector_list,
             # symmetry_matrix_id can be later written out to find out
             # which symmetry matrix created this subparticle
             symmetry_matrix = np.array(symmetry_matrices[symmetry_matrix_id - 1][0:3, 0:3])
+            symmetry_operator_id = symmetry_operator_ids[symmetry_matrix_id - 1]
 
             subpart = particle.clone()
             m = np.matmul(matrix_particle[0:3, 0:3], (np.matmul(symmetry_matrix.transpose(),
@@ -370,6 +405,9 @@ def create_subparticles(particle, symmetry_matrices, subparticle_vector_list,
                 ctf.setDefocusV(subpart.getCTF().getDefocusV() + z_ang)
 
             subpart.setCoordinate(coord)
+            subpart._symmetryOperatorId = int(symmetry_operator_id)
+            if symmetry_group is not None:
+                subpart._symmetryGroup = int(symmetry_group)
             coord._subparticle = subpart.clone()
             subparticles.append(subpart)
 
