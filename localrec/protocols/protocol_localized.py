@@ -165,6 +165,7 @@ class ProtLocalizedRecons(ProtParticlePicking, ProtParticles):
                   }
         # convert symmetry to scipion
         sym = self.symGrp.get()
+        symGrpParam = sym
         # symDict = {0: 'C', 1: 'D', 2: 'T', 3: 'O',
         # 4: 'I1', 5: 'I2', 6: 'I3', 7: 'I4'}
         if sym == 0: sym = SYM_CYCLIC
@@ -181,11 +182,23 @@ class ProtLocalizedRecons(ProtParticlePicking, ProtParticles):
         elif sym == 11: sym = SYM_I2n5r
         symMatrices = getSymmetryMatrices(sym=sym,
                                           n=self.symmetryOrder.get())
+        # group label = user-selected point group.
+        if symGrpParam == 0:
+            symmetryGroupLabel = 'C%d' % self.symmetryOrder.get()
+        elif symGrpParam == 1:
+            symmetryGroupLabel = 'D%d' % self.symmetryOrder.get()
+        else:
+            symmetryGroupLabel = ['T', 'O', 'I1', 'I2', 'I3',
+                                  'I4', 'I5', 'I6', 'I7', 'I8'][symGrpParam - 2]
+
+        # operator ID = 1-based index in the full symmetry operator set.
+        symmetryOperatorIds = list(range(1, len(symMatrices) + 1))
         selectedSymmetryMatrixIds = self._parseSymmetryMatrixIds(
             self.symmetryMatrixIds.get(), len(symMatrices))
         if selectedSymmetryMatrixIds:
             symMatrices = [symMatrices[matrixId - 1]
                            for matrixId in selectedSymmetryMatrixIds]
+            symmetryOperatorIds = selectedSymmetryMatrixIds
 ###ROB                                          n = self.symmetryOrder.get())
 #        for mat in symMatrices:
 #            print (mat)
@@ -228,7 +241,9 @@ class ProtLocalizedRecons(ProtParticlePicking, ProtParticles):
                                                self.randomize, 0,
                                                self.alignSubParticles,
                                                self.handness,
-                                               params["pxSize"])
+                                               params["pxSize"],
+                                               symmetryGroupLabel,
+                                               symmetryOperatorIds)
 
             for subpart in subparticles:
                 coord = subpart.getCoordinate()
