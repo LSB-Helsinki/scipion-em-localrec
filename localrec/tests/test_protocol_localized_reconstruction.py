@@ -34,6 +34,7 @@ from pwem.constants import (SYM_CYCLIC, SYM_DIHEDRAL, SYM_OCTAHEDRAL,
                             SYM_In25, SYM_In25r, SCIPION_SYM_NAME,
                             SYM_I2n3, SYM_I2n3r, SYM_I2n5, SYM_I2n5r)
 from tempfile import NamedTemporaryFile
+import os
 from xmipp3.protocols import XmippProtCreateMask3D
 import pwem.protocols as emprot
 import numpy as np
@@ -210,6 +211,41 @@ class TestLocalizedRecons(TestLocalizedReconsBase):
         self.launchProtocol(protMask)
         return protMask.outputMask
 
+    def _createMinimalPdbFile(self):
+        pdbString = """HEADER    TEST MODEL
+ATOM      1  N   ALA A   1       8.316  21.206  21.530  1.00 17.44           N
+ATOM      2  CA  ALA A   1       7.608  20.729  20.336  1.00 17.44           C
+END
+"""
+        f = NamedTemporaryFile(delete=False, suffix='.pdb')
+        f.write(pdbString.encode('utf8'))
+        f.close()
+        return f.name
+
+    def _runLocalizedStitchModels(self, outputOnlyMatrices=False):
+        pdbFn = self._createMinimalPdbFile()
+        prot = self.newProtocol(
+            ProtLocalizedStitchModels,
+            definePdb=0,
+            pdbFile=pdbFn,
+            defineVector=1,
+            vector='0,0,1',
+            fullBoxSize=100,
+            smallBoxSize=20,
+            calibratedSamplingRate='1.0',
+            symmetryName=0,
+            nSymmetry=1,
+            outputOnlyMatrices=outputOnlyMatrices
+        )
+        self.assertEqual([], prot._validate(),
+                         'Stitch models protocol has validation errors before launch.')
+        self.launchProtocol(prot)
+
+        outputModelFn = prot._getOutputFileName()
+        self.assertTrue(os.path.exists(outputModelFn),
+                        'Expected output model CIF was not generated.')
+        return prot, outputModelFn
+
     def testProtLocalizedReconstruction(self):
         print("Run ProtLocalized Reconstruction")
 
@@ -333,3 +369,14 @@ sph = 1 '0 0 0' '48'
         self.assertAlmostEqual(x, new_orig[0], places=1)
         self.assertAlmostEqual(y, new_orig[1], places=1)
         self.assertAlmostEqual(z, new_orig[2], places=1)
+
+    def testProtLocalizedStitchModels(self):
+        # Branch: applySymmetryStep
+        self._runLocalizedStitchModels(outputOnlyMatrices=False)
+
+        # Branch: biologicalAssemblyStep
+        _, outputModelFn = self._runLocalizedStitchModels(outputOnlyMatrices=True)
+        with open(outputModelFn, 'r', encoding='utf-8') as f:
+            cifContent = f.read()
+        self.assertIn('_pdbx_struct_assembly.id', cifContent)
+        self.assertIn('_pdbx_struct_oper_list.id', cifContent)
