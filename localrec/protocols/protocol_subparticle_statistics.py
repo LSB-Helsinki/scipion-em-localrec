@@ -16,6 +16,7 @@ import os
 from pyworkflow import VERSION_3_0
 from pyworkflow.protocol.params import PointerParam, IntParam, StringParam
 from pwem.protocols import ProtParticles
+from localrec.utils import get_subparticle_provenance
 
 
 class ProtSubparticleStatistics(ProtParticles):
@@ -78,10 +79,15 @@ class ProtSubparticleStatistics(ProtParticles):
                                          allow_empty=True)
 
         per_particle_counts = {}
+        provenance_summary = {'withProvenance': 0, 'missingProvenance': 0}
 
-        for parent_id, class_id in self._iterAssignments(classification):
+        for parent_id, class_id, has_provenance in self._iterAssignments(classification):
             if parent_id not in per_particle_counts:
                 per_particle_counts[parent_id] = [0, 0]
+            if has_provenance:
+                provenance_summary['withProvenance'] += 1
+            else:
+                provenance_summary['missingProvenance'] += 1
 
             if class_id in group1_ids:
                 per_particle_counts[parent_id][0] += 1
@@ -92,13 +98,20 @@ class ProtSubparticleStatistics(ProtParticles):
         if not per_particle_counts:
             raise Exception('No subparticle assignments found in the selected '
                             'classification input.')
+        if provenance_summary['missingProvenance'] > 0:
+            self.warning('Subparticle provenance fields '
+                         '(_symmetryGroup/_symmetryOperatorId) were missing in '
+                         '%d items. Continuing statistics computation.'
+                         % provenance_summary['missingProvenance'])
 
         if group2_ids:
-            self._write2DHistogram(per_particle_counts, group1_ids, group2_ids)
+            self._write2DHistogram(per_particle_counts, group1_ids, group2_ids,
+                                   provenance_summary)
         else:
-            self._write1DHistogram(per_particle_counts, group1_ids)
+            self._write1DHistogram(per_particle_counts, group1_ids,
+                                   provenance_summary)
 
-    def _write1DHistogram(self, per_particle_counts, group1_ids):
+    def _write1DHistogram(self, per_particle_counts, group1_ids, provenance_summary):
         counts_group1 = [count_pair[0] for count_pair in per_particle_counts.values()]
 
         auto_n = max(counts_group1)
@@ -124,6 +137,7 @@ class ProtSubparticleStatistics(ProtParticles):
             'maxCount': n,
             'overflow': overflow,
             'totalParticles': len(per_particle_counts),
+            'provenance': provenance_summary,
             'bins': bins,
             'counts': [histogram[k] for k in bins]
         }
@@ -134,11 +148,15 @@ class ProtSubparticleStatistics(ProtParticles):
 
         with open(csv_path, 'w') as handle:
             writer = csv.writer(handle)
-            writer.writerow(['category_k', 'particle_count'])
+            writer.writerow(['category_k', 'particle_count',
+                             'with_provenance', 'missing_provenance'])
             for k in bins:
-                writer.writerow([k, histogram[k]])
+                writer.writerow([k, histogram[k],
+                                 provenance_summary['withProvenance'],
+                                 provenance_summary['missingProvenance']])
 
-    def _write2DHistogram(self, per_particle_counts, group1_ids, group2_ids):
+    def _write2DHistogram(self, per_particle_counts, group1_ids, group2_ids,
+                          provenance_summary):
         pairs = [tuple(count_pair) for count_pair in per_particle_counts.values()]
         x_auto = max(pair[0] for pair in pairs)
         y_auto = max(pair[1] for pair in pairs)
@@ -170,6 +188,7 @@ class ProtSubparticleStatistics(ProtParticles):
             'maxCount': n,
             'overflow': overflow,
             'totalParticles': len(per_particle_counts),
+            'provenance': provenance_summary,
             'points': points
         }
 
@@ -179,9 +198,13 @@ class ProtSubparticleStatistics(ProtParticles):
 
         with open(csv_path, 'w') as handle:
             writer = csv.writer(handle)
-            writer.writerow(['x_count_group1', 'y_count_group2', 'particle_frequency'])
+            writer.writerow(['x_count_group1', 'y_count_group2',
+                             'particle_frequency', 'with_provenance',
+                             'missing_provenance'])
             for point in points:
-                writer.writerow([point['x'], point['y'], point['frequency']])
+                writer.writerow([point['x'], point['y'], point['frequency'],
+                                 provenance_summary['withProvenance'],
+                                 provenance_summary['missingProvenance']])
 
     def _resolveMaxCount(self, auto_n):
         user_n = int(self.maxCount.get())
@@ -205,7 +228,9 @@ class ProtSubparticleStatistics(ProtParticles):
                 cls_items = cls
             for item in cls_items:
                 parent_id = self._getParentParticleId(item)
-                yield parent_id, class_id
+                sym_group, operator_id = get_subparticle_provenance(item)
+                has_provenance = sym_group is not None and operator_id is not None
+                yield parent_id, class_id, has_provenance
 
     @staticmethod
     def _getClassId(cls):

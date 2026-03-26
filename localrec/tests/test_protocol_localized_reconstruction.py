@@ -254,6 +254,72 @@ class TestLocalizedRecons(TestLocalizedReconsBase):
         coordinate = coordinates.getFirstItem()
         self.assertTrue(coordinate.getObjId() == 1)
         self.assertTrue(coordinate.getMicId() == 1)
+        sym_group, operator_id = self._extract_provenance(coordinate)
+        self.assertIsNotNone(sym_group)
+        self.assertIsNotNone(operator_id)
+
+        for i, coord in enumerate(coordinates.iterItems()):
+            sampled_sym_group, sampled_operator_id = self._extract_provenance(coord)
+            self.assertIsNotNone(sampled_sym_group)
+            self.assertIsNotNone(sampled_operator_id)
+            if i >= 20:
+                break
+
+    def _extract_provenance(self, coord):
+        return get_subparticle_provenance(coord._subparticle)
+
+    def testSubparticleProvenanceFields(self):
+        prot = self._runSubparticles(600, [-1.2, 111.6, -177.4],
+                                     alignSubParticles=False)
+        first_coord = prot.outputCoordinates.getFirstItem()
+        sym_group, operator_id = self._extract_provenance(first_coord)
+
+        self.assertIsNotNone(sym_group)
+        self.assertIsNotNone(operator_id)
+        self.assertEqual(SYM_I222, int(sym_group))
+
+    def testSubparticleProvenanceSubsetOperatorIds(self):
+        prot = self.newProtocol(ProtLocalizedRecons,
+                                objLabel='subset symmetry ids',
+                                symGrp=SYM_I222,
+                                symmetryMatrixIds='1,3,5',
+                                defineVector=0,
+                                alignSubParticles=False)
+        prot.inputParticles.set(self.protImport.outputParticles)
+        prot.vectorFile.set(self.chimeraFile)
+        self.launchProtocol(prot)
+
+        operator_ids = set()
+        sample_sequence = []
+        for i, coord in enumerate(prot.outputCoordinates.iterItems()):
+            _, operator_id = self._extract_provenance(coord)
+            operator_ids.add(int(operator_id))
+            if i < 30:
+                sample_sequence.append(int(operator_id))
+            if len(operator_ids) == 3 and i > 200:
+                break
+
+        self.assertSetEqual({1, 3, 5}, operator_ids)
+
+        prot_second = self.newProtocol(ProtLocalizedRecons,
+                                       objLabel='subset symmetry ids second run',
+                                       symGrp=SYM_I222,
+                                       symmetryMatrixIds='1,3,5',
+                                       defineVector=0,
+                                       alignSubParticles=False)
+        prot_second.inputParticles.set(self.protImport.outputParticles)
+        prot_second.vectorFile.set(self.chimeraFile)
+        self.launchProtocol(prot_second)
+
+        sample_sequence_second = []
+        for i, coord in enumerate(prot_second.outputCoordinates.iterItems()):
+            _, operator_id = self._extract_provenance(coord)
+            if i < 30:
+                sample_sequence_second.append(int(operator_id))
+            else:
+                break
+
+        self.assertListEqual(sample_sequence, sample_sequence_second)
 
     def testSetOrigin(self):
         # create set of coordinates and localize protocol
