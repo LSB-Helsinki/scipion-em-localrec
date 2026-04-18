@@ -27,7 +27,7 @@ import numpy as np
 
 from pyworkflow import VERSION_1_2
 from pwem.emlib.image import ImageHandler
-from pyworkflow.protocol.params import PointerParam
+from pyworkflow.protocol.params import PointerParam, BooleanParam
 from pwem.protocols import ProtParticles
 from pyworkflow.protocol.params import IntParam
 
@@ -59,6 +59,20 @@ class ProtLocalizedExtraction(ProtParticles):
                       important=True,
                       label='Input coordinates')
 
+        form.addParam('extractFromMicrographs', BooleanParam, default=False,
+                      label='Extract from micrographs?',
+                      help='If set to Yes, subparticles will be extracted from '
+                           'the original micrographs using particle '
+                           'coordinates and origin shifts.')
+
+        form.addParam('inputMicrographs', PointerParam,
+                      pointerClass='SetOfMicrographs',
+                      condition='extractFromMicrographs',
+                      label='Micrographs',
+                      help='Set of micrographs used to extract the input '
+                           'particles. This must match the original '
+                           'micrographs.')
+
         form.addParam('boxSize', IntParam,
                       label='Subparticle box size (px)',
                       help='Select the amount of pixels to extract the '
@@ -80,11 +94,15 @@ class ProtLocalizedExtraction(ProtParticles):
 
         inputParticles = self.inputParticles.get()
         inputCoords = self.inputCoordinates.get()
+        inputMicrographs = (self.inputMicrographs.get()
+                            if self.extractFromMicrographs.get()
+                            else None)
         outputSet = self._createSetOfParticles()
         outputSet.copyInfo(inputParticles)
 
         boxSize = self.boxSize.get()
         b2 = int(round(boxSize / 2))
+        halfParticleDim = int(round(inputParticles.getXDim() / 2))
         center = np.zeros((boxSize, boxSize))
 
         ih = ImageHandler()
@@ -93,6 +111,7 @@ class ProtLocalizedExtraction(ProtParticles):
         outliers = 0
         partIdExcluded = []
         lastPartId = None
+        lastMicId = None
         missingProvenanceWarned = False
 
         progress = ProgressBar(len(inputCoords), fmt=ProgressBar.NOBAR)
@@ -115,10 +134,27 @@ class ProtLocalizedExtraction(ProtParticles):
                     self.info("WARNING: Missing particle with id %s from "
                               "input particles set" % partId)
                 else:
-                    # Now load the particle image to extract later sub-particles
-                    img = ih.read(particle)
-                    x, y, _, _ = img.getDimensions()
-                    data = img.getData()
+                    if self.extractFromMicrographs.get():
+                        particleCoord = particle.getCoordinate()
+                        micId = particleCoord.getMicId()
+                        if micId != lastMicId:
+                            mic = inputMicrographs[micId]
+                            if mic is None:
+                                self.info("WARNING: Missing micrograph with "
+                                          "id %s from input micrographs set"
+                                          % micId)
+                                lastMicId = None
+                                data = None
+                            else:
+                                img = ih.read(mic)
+                                x, y, _, _ = img.getDimensions()
+                                data = img.getData()
+                                lastMicId = micId
+                    else:
+                        # Load the particle image to extract later sub-particles
+                        img = ih.read(particle)
+                        x, y, _, _ = img.getDimensions()
+                        data = img.getData()
 
                 lastPartId = partId
 
@@ -126,8 +162,19 @@ class ProtLocalizedExtraction(ProtParticles):
             # generated. Now, subtract from a subset of original particles is
             # supported.
             if partId not in partIdExcluded:
-                xpos = coord.getX()
-                ypos = coord.getY()
+                if self.extractFromMicrographs.get():
+                    if data is None:
+                        outliers += 1
+                        continue
+                    particle = inputParticles[partId]
+                    particleCoord = particle.getCoordinate()
+                    xOffset = coord.getX() - halfParticleDim
+                    yOffset = coord.getY() - halfParticleDim
+                    xpos = int(particleCoord.getX() + xOffset)
+                    ypos = int(particleCoord.getY() + yOffset)
+                else:
+                    xpos = coord.getX()
+                    ypos = coord.getY()
 
                 # Check that the sub-particle will not lay out of the particle
                 if (ypos - b2 < 0 or ypos + b2 > y or
@@ -164,12 +211,27 @@ class ProtLocalizedExtraction(ProtParticles):
     # -------------------------- INFO functions -------------------------------
     def _validate(self):
         errors = []
+        inputParticles = self.inputParticles.get()
         inputCoords = self.inputCoordinates.get()
         firstCoord = inputCoords.getFirstItem()
 
         if not firstCoord.hasAttribute('_subparticle'):
             errors.append('The selected input coordinates does not are the '
                           'output from a localized-subparticles protocol.')
+        if self.extractFromMicrographs.get():
+            if self.inputMicrographs.get() is None:
+                errors.append('Micrographs input is required when "Extract '
+                              'from micrographs?" is set to Yes.')
+            elif inputParticles.getMicrographs() is None:
+                errors.append('Input particles do not contain an associated '
+                              'micrographs set to validate against.')
+            else:
+                inputMicIds = {m.getObjId() for m in self.inputMicrographs.get()}
+                particleMicIds = {m.getObjId()
+                                  for m in inputParticles.getMicrographs()}
+                if not particleMicIds.issubset(inputMicIds):
+                    errors.append('Input micrographs do not contain all '
+                                  'micrographs referenced by input particles.')
 
         return errors
 
