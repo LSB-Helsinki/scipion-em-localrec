@@ -215,6 +215,10 @@ class ProtLocalizedExtraction(ProtParticles):
         inputCoords = self.inputCoordinates.get()
         firstCoord = inputCoords.getFirstItem()
 
+        if firstCoord is None:
+            errors.append('Input coordinates set is empty.')
+            return errors
+
         if not firstCoord.hasAttribute('_subparticle'):
             errors.append('The selected input coordinates does not are the '
                           'output from a localized-subparticles protocol.')
@@ -222,14 +226,34 @@ class ProtLocalizedExtraction(ProtParticles):
             if self.inputMicrographs.get() is None:
                 errors.append('Micrographs input is required when "Extract '
                               'from micrographs?" is set to Yes.')
-            elif inputParticles.getMicrographs() is None:
-                errors.append('Input particles do not contain an associated '
-                              'micrographs set to validate against.')
             else:
                 inputMicIds = {m.getObjId() for m in self.inputMicrographs.get()}
-                particleMicIds = {m.getObjId()
-                                  for m in inputParticles.getMicrographs()}
-                if not particleMicIds.issubset(inputMicIds):
+
+                particleMicIds = set()
+                particleMics = (inputParticles.getMicrographs()
+                                if hasattr(inputParticles, 'getMicrographs')
+                                else None)
+
+                if particleMics is not None:
+                    particleMicIds = {m.getObjId() for m in particleMics}
+                else:
+                    for particle in inputParticles:
+                        particleCoord = (particle.getCoordinate()
+                                         if hasattr(particle, 'getCoordinate')
+                                         else None)
+                        if particleCoord is None:
+                            continue
+                        micId = (particleCoord.getMicId()
+                                 if hasattr(particleCoord, 'getMicId')
+                                 else None)
+                        if micId is not None:
+                            particleMicIds.add(micId)
+
+                if not particleMicIds:
+                    errors.append('Input particles do not contain enough '
+                                  'micrograph linkage information to validate '
+                                  'against the provided micrographs.')
+                elif not particleMicIds.issubset(inputMicIds):
                     errors.append('Input micrographs do not contain all '
                                   'micrographs referenced by input particles.')
 
