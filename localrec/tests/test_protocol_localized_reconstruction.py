@@ -409,3 +409,27 @@ sph = 1 '0 0 0' '48'
         self.assertAlmostEqual(x, new_orig[0], places=1)
         self.assertAlmostEqual(y, new_orig[1], places=1)
         self.assertAlmostEqual(z, new_orig[2], places=1)
+
+
+class TestLocalizedExtractionWindowPadding(BaseTest):
+    def testOutOfBoundsDiscardedByDefault(self):
+        data = np.arange(36, dtype=np.float32).reshape(6, 6)
+        window, usedPadding = ProtLocalizedExtraction._extractWindowWithPadding(
+            data, xpos=0, ypos=0, boxSize=4, extractAll=False)
+
+        self.assertIsNone(window)
+        self.assertFalse(usedPadding)
+
+    def testOutOfBoundsExtractAllUsesBoundaryPadding(self):
+        data = np.arange(36, dtype=np.float32).reshape(6, 6)
+        window, usedPadding = ProtLocalizedExtraction._extractWindowWithPadding(
+            data, xpos=0, ypos=0, boxSize=4, extractAll=True)
+
+        expected = np.array([[0, 0, 0, 1],
+                             [0, 0, 0, 1],
+                             [0, 0, 0, 1],
+                             [6, 6, 6, 7]], dtype=np.float32)
+
+        self.assertTrue(usedPadding)
+        self.assertEqual((4, 4), window.shape)
+        np.testing.assert_array_equal(expected, window)
