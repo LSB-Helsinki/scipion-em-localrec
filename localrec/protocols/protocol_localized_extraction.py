@@ -27,7 +27,7 @@ import numpy as np
 
 from pyworkflow import VERSION_1_2
 from pwem.emlib.image import ImageHandler
-from pyworkflow.protocol.params import PointerParam, BooleanParam
+from pyworkflow.protocol.params import PointerParam, BooleanParam, LEVEL_ADVANCED
 from pwem.protocols import ProtParticles
 from pyworkflow.protocol.params import IntParam
 
@@ -77,6 +77,11 @@ class ProtLocalizedExtraction(ProtParticles):
                       label='Subparticle box size (px)',
                       help='Select the amount of pixels to extract the '
                            'sub-particles.')
+        form.addParam('extractAll', BooleanParam, default=False,
+                      expertLevel=LEVEL_ADVANCED,
+                      label='Extract all',
+                      help='Extract all sub-particles, even those that extend '
+                           'outside of the particle box')
 
         form.addParallelSection(threads=0, mpi=0)
 
@@ -108,7 +113,8 @@ class ProtLocalizedExtraction(ProtParticles):
         ih = ImageHandler()
 
         i = 0
-        outliers = 0
+        discardedOutliers = 0
+        paddedOutliers = 0
         partIdExcluded = []
         lastPartId = None
         lastMicId = None
@@ -164,7 +170,7 @@ class ProtLocalizedExtraction(ProtParticles):
             if partId not in partIdExcluded:
                 if self.extractFromMicrographs.get():
                     if data is None:
-                        outliers += 1
+                        discardedOutliers += 1
                         continue
                     particle = inputParticles[partId]
                     particleCoord = particle.getCoordinate()
@@ -176,14 +182,16 @@ class ProtLocalizedExtraction(ProtParticles):
                     xpos = coord.getX()
                     ypos = coord.getY()
 
-                # Check that the sub-particle will not lay out of the particle
-                if (ypos - b2 < 0 or ypos + b2 > y or
-                        xpos - b2 < 0 or xpos + b2 > x):
-                    outliers += 1
+                centerData, usedPadding = self._extractWindowWithPadding(
+                    data, xpos, ypos, boxSize, self.extractAll.get())
+                if centerData is None:
+                    discardedOutliers += 1
                     continue
 
-                # Crop the sub-particle data from the whole particle image
-                center[:, :] = data[ypos - b2:ypos + b2, xpos - b2:xpos + b2]
+                if usedPadding:
+                    paddedOutliers += 1
+
+                center[:, :] = centerData
                 outputImg.setData(center)
                 i += 1
                 outputImg.write((i, outputStack))
@@ -201,12 +209,42 @@ class ProtLocalizedExtraction(ProtParticles):
                 outputSet.append(subpart)
 
         progress.finish()
-        if outliers:
+        if discardedOutliers:
             self.info("WARNING: Discarded %s particles because laid out of the "
-                      "particle (for a box size of %d" % (outliers, boxSize))
+                      "particle (for a box size of %d)" %
+                      (discardedOutliers, boxSize))
+        if paddedOutliers:
+            self.info("INFO: Extracted %s out-of-box sub-particles with "
+                      "boundary padding (box size of %d)." %
+                      (paddedOutliers, boxSize))
         outputSet.setIsSubparticles(True)
         self._defineOutputs(**{self.OUTPUTPARTICLESNAME: outputSet})
         self._defineSourceRelation(self.inputParticles, outputSet)
+
+    @staticmethod
+    def _extractWindowWithPadding(data, xpos, ypos, boxSize, extractAll):
+        """Extract a centered window. If extractAll is True, windows that
+        extend outside boundaries are padded by clamping to image edges.
+        """
+        b2 = int(round(boxSize / 2))
+        xDim = data.shape[1]
+        yDim = data.shape[0]
+
+        x0 = xpos - b2
+        x1 = xpos + b2
+        y0 = ypos - b2
+        y1 = ypos + b2
+
+        inBounds = (y0 >= 0 and y1 <= yDim and x0 >= 0 and x1 <= xDim)
+        if inBounds:
+            return data[y0:y1, x0:x1], False
+
+        if not extractAll:
+            return None, False
+
+        xIndices = np.clip(np.arange(x0, x1), 0, xDim - 1)
+        yIndices = np.clip(np.arange(y0, y1), 0, yDim - 1)
+        return data[np.ix_(yIndices, xIndices)], True
 
     # -------------------------- INFO functions -------------------------------
     def _validate(self):
