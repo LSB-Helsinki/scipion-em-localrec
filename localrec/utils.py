@@ -401,6 +401,10 @@ def create_subparticles(particle, symmetry_matrices, subparticle_vector_list,
             coord.setObjId(None)
             coord.setX(int(part_image_size / 2) - x_i)
             coord.setY(int(part_image_size / 2) - y_i)
+            # NOTE: For subparticle-coordinate sets, micId is used to keep
+            # the parent particle ObjId (not the original micrograph id).
+            # Downstream extraction uses this linkage to recover micrograph
+            # coordinates from the parent particle.
             coord.setMicId(particle.getObjId())
 
             if subpart.hasCTF():

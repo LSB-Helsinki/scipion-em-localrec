@@ -37,6 +37,7 @@ from tempfile import NamedTemporaryFile
 from xmipp3.protocols import XmippProtCreateMask3D
 import pwem.protocols as emprot
 import numpy as np
+import unittest
 
 # Some utility functions to import micrographs that are used
 # in several tests.
@@ -258,6 +259,7 @@ class TestLocalizedRecons(TestLocalizedReconsBase):
         self.assertIsNotNone(sym_group)
         self.assertIsNotNone(operator_id)
 
+
         for i, coord in enumerate(coordinates.iterItems()):
             sampled_sym_group, sampled_operator_id = self._extract_provenance(coord)
             self.assertIsNotNone(sampled_sym_group)
@@ -409,6 +411,49 @@ sph = 1 '0 0 0' '48'
         self.assertAlmostEqual(x, new_orig[0], places=1)
         self.assertAlmostEqual(y, new_orig[1], places=1)
         self.assertAlmostEqual(z, new_orig[2], places=1)
+
+
+class TestLocalizedExtractionMicrographPosition(unittest.TestCase):
+    class _Coord:
+        def __init__(self, x, y):
+            self._x = x
+            self._y = y
+
+        def getX(self):
+            return self._x
+
+        def getY(self):
+            return self._y
+
+    class _Particle:
+        class _Transform:
+            def __init__(self, matrix):
+                self._matrix = matrix
+
+            def getMatrix(self):
+                return self._matrix
+
+        def __init__(self, matrix):
+            self._transform = self._Transform(matrix)
+
+        def getTransform(self):
+            return self._transform
+
+    def test_compute_micrograph_position_applies_particle_shift_and_rounding(self):
+        # Build a matrix whose geometryFromMatrix returns shifts [1.5, -2.5, 0]
+        matrix = np.eye(4)
+        matrix[:3, 3] = [-1.5, 2.5, 0.0]
+        particle = self._Particle(matrix)
+        particleCoord = self._Coord(100.0, 120.0)
+        subpartCoord = self._Coord(58.0, 43.0)
+
+        xpos, ypos = ProtLocalizedExtraction._computeMicrographPosition(
+            particle, particleCoord, subpartCoord, halfParticleDim=50)
+
+        # xOffset=8, yOffset=-7 => x=100+1.5+8=109.5 -> 110
+        # y=120-2.5-7=110.5 -> 110 (banker's rounding in Python)
+        self.assertEqual(110, xpos)
+        self.assertEqual(110, ypos)
 
 
 class TestLocalizedExtractionWindowPadding(BaseTest):

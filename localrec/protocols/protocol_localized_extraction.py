@@ -34,7 +34,7 @@ from pyworkflow.protocol.params import IntParam
 # eventually progressbar will be move to scipion core
 from pyworkflow.utils import ProgressBar
 from pwem.objects import SetOfParticles
-from localrec.utils import has_subparticle_provenance
+from localrec.utils import has_subparticle_provenance, geometryFromMatrix
 
 
 class ProtLocalizedExtraction(ProtParticles):
@@ -128,8 +128,15 @@ class ProtLocalizedExtraction(ProtParticles):
             if i % step == 0:
                 progress.update(i+1)
 
-            # The original particle id is stored in the sub-particle as micId
-            partId = coord._micId.get()
+            # NOTE: In localrec subparticle coordinates, _micId stores the
+            # parent particle ObjId (not a true micrograph id). Keep this
+            # convention for backwards compatibility.
+            partId = self._getParentParticleId(coord)
+            if partId is None:
+                discardedOutliers += 1
+                self.info("WARNING: Missing parent particle id (_micId) in "
+                          "subparticle coordinate id %s" % coord.getObjId())
+                continue
 
             # Load the particle if it has changed from the last sub-particle
             if partId != lastPartId:
@@ -174,10 +181,8 @@ class ProtLocalizedExtraction(ProtParticles):
                         continue
                     particle = inputParticles[partId]
                     particleCoord = particle.getCoordinate()
-                    xOffset = coord.getX() - halfParticleDim
-                    yOffset = coord.getY() - halfParticleDim
-                    xpos = int(particleCoord.getX() + xOffset)
-                    ypos = int(particleCoord.getY() + yOffset)
+                    xpos, ypos = self._computeMicrographPosition(
+                        particle, particleCoord, coord, halfParticleDim)
                 else:
                     xpos = coord.getX()
                     ypos = coord.getY()
@@ -245,6 +250,37 @@ class ProtLocalizedExtraction(ProtParticles):
         xIndices = np.clip(np.arange(x0, x1), 0, xDim - 1)
         yIndices = np.clip(np.arange(y0, y1), 0, yDim - 1)
         return data[np.ix_(yIndices, xIndices)], True
+
+    @staticmethod
+    def _getParentParticleId(coord):
+        """Return the parent particle ObjId encoded in coordinate _micId."""
+        if not hasattr(coord, '_micId'):
+            return None
+
+        parentId = coord._micId
+        if hasattr(parentId, 'get'):
+            parentId = parentId.get()
+        return parentId
+
+    @staticmethod
+    def _computeMicrographPosition(particle, particleCoord, subpartCoord,
+                                   halfParticleDim):
+        """Compute subparticle center in the original micrograph frame.
+
+        Coordinate frames:
+        - subpartCoord (x/y): particle-box image frame, top-left origin.
+        - xOffset/yOffset: particle-centered frame (subtract half box size).
+        - particleCoord + shift + offset: original micrograph frame.
+        """
+        matrix_particle = particle.getTransform().getMatrix()
+        shifts, _angles = geometryFromMatrix(matrix_particle)
+
+        xOffset = subpartCoord.getX() - halfParticleDim
+        yOffset = subpartCoord.getY() - halfParticleDim
+        xpos = int(round(particleCoord.getX() + shifts[0] + xOffset))
+        ypos = int(round(particleCoord.getY() + shifts[1] + yOffset))
+
+        return xpos, ypos
 
     # -------------------------- INFO functions -------------------------------
     def _validate(self):
