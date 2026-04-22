@@ -69,41 +69,17 @@ class Vector3:
         self.set_vector(unit_vector(self.vector))
 
     def compute_matrix(self):
-        """Compute rotation matrix to align Z axis to this vector.
+        """ Compute rotation matrix to align Z axis to this vector. """
 
-        Build a stable rotation directly from vectors instead of Euler-angle
-        decomposition to avoid convention ambiguities around antiparallel
-        vectors (for example [-1, 0, 0]).
-        """
-        # Make sure we operate on a normalized vector.
-        v = np.array(self.vector, dtype=float)
-        v_norm = vector_norm(v)
-        if v_norm < 1e-12:
-            raise ValueError("Cannot compute rotation matrix for zero vector.")
-        v /= v_norm
-
-        z_axis = np.array([0.0, 0.0, 1.0], dtype=float)
-        dot = np.clip(np.dot(z_axis, v), -1.0, 1.0)
-        eps = 1e-10
-
-        if dot > 1.0 - eps:
-            rot = np.identity(3, dtype=float)
-        elif dot < -1.0 + eps:
-            # 180 deg rotation around a deterministic axis orthogonal to Z.
-            # Rotate around X: Z -> -Z.
-            rot = np.array([[1.0, 0.0, 0.0],
-                            [0.0, -1.0, 0.0],
-                            [0.0, 0.0, -1.0]], dtype=float)
+        if abs(self.vector[0]) < 0.00001 and abs(self.vector[1]) < 0.00001:
+            rot = math.radians(0.00)
+            tilt = math.radians(0.00)
         else:
-            axis = np.cross(z_axis, v)
-            s = vector_norm(axis)
-            k = np.array([[0.0, -axis[2], axis[1]],
-                          [axis[2], 0.0, -axis[0]],
-                          [-axis[1], axis[0], 0.0]], dtype=float)
-            rot = np.identity(3, dtype=float) + k + np.matmul(k, k) * ((1.0 - dot) / (s ** 2))
+            rot = math.atan2(self.vector[1], self.vector[0])
+            tilt = math.acos(self.vector[2])
 
-        self.matrix = np.identity(4, dtype=float)
-        self.matrix[0:3, 0:3] = rot
+        psi = 0
+        self.matrix = euler_matrix(-rot, -tilt, -psi, 'szyz')
 
     def print_vector(self):
         print("[%.3f,%.3f,%.3f]" % (self.vector[0], self.vector[1], self.vector[2]))
