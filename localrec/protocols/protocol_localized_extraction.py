@@ -118,7 +118,11 @@ class ProtLocalizedExtraction(ProtParticles):
         partIdExcluded = []
         lastPartId = None
         lastMicId = None
+        missingMicIds = set()
         missingProvenanceWarned = False
+        data = None
+        currentParticle = None
+        currentParticleCoord = None
 
         progress = ProgressBar(len(inputCoords), fmt=ProgressBar.NOBAR)
         progress.start()
@@ -128,12 +132,21 @@ class ProtLocalizedExtraction(ProtParticles):
             if i % step == 0:
                 progress.update(i+1)
 
-            # The original particle id is stored in the sub-particle as micId
-            partId = coord._micId.get()
+            # NOTE: In localrec subparticle coordinates, _micId stores the
+            # parent particle ObjId (not a true micrograph id). Keep this
+            # convention for backwards compatibility.
+            partId = self._getParentParticleId(coord)
+            if partId is None:
+                discardedOutliers += 1
+                self.info("WARNING: Missing parent particle id (_micId) in "
+                          "subparticle coordinate id %s" % coord.getObjId())
+                continue
 
             # Load the particle if it has changed from the last sub-particle
             if partId != lastPartId:
                 particle = inputParticles[partId]
+                currentParticle = particle
+                currentParticleCoord = None
 
                 if particle is None:
                     partIdExcluded.append(partId)
@@ -142,8 +155,12 @@ class ProtLocalizedExtraction(ProtParticles):
                 else:
                     if self.extractFromMicrographs.get():
                         particleCoord = particle.getCoordinate()
+                        currentParticleCoord = particleCoord
                         micId = particleCoord.getMicId()
-                        if micId != lastMicId:
+                        if micId in missingMicIds:
+                            data = None
+                            lastMicId = None
+                        elif micId != lastMicId:
                             mic = inputMicrographs[micId]
                             if mic is None:
                                 self.info("WARNING: Missing micrograph with "
@@ -151,6 +168,7 @@ class ProtLocalizedExtraction(ProtParticles):
                                           % micId)
                                 lastMicId = None
                                 data = None
+                                missingMicIds.add(micId)
                             else:
                                 img = ih.read(mic)
                                 x, y, _, _ = img.getDimensions()
@@ -172,12 +190,8 @@ class ProtLocalizedExtraction(ProtParticles):
                     if data is None:
                         discardedOutliers += 1
                         continue
-                    particle = inputParticles[partId]
-                    particleCoord = particle.getCoordinate()
-                    xOffset = coord.getX() - halfParticleDim
-                    yOffset = coord.getY() - halfParticleDim
-                    xpos = int(particleCoord.getX() + xOffset)
-                    ypos = int(particleCoord.getY() + yOffset)
+                    xpos, ypos = self._computeMicrographPosition(
+                        currentParticleCoord, coord, halfParticleDim)
                 else:
                     xpos = coord.getX()
                     ypos = coord.getY()
@@ -245,6 +259,33 @@ class ProtLocalizedExtraction(ProtParticles):
         xIndices = np.clip(np.arange(x0, x1), 0, xDim - 1)
         yIndices = np.clip(np.arange(y0, y1), 0, yDim - 1)
         return data[np.ix_(yIndices, xIndices)], True
+
+    @staticmethod
+    def _getParentParticleId(coord):
+        """Return the parent particle ObjId encoded in coordinate _micId."""
+        if not hasattr(coord, '_micId'):
+            return None
+
+        parentId = coord._micId
+        if hasattr(parentId, 'get'):
+            parentId = parentId.get()
+        return parentId
+
+    @staticmethod
+    def _computeMicrographPosition(particleCoord, subpartCoord, halfParticleDim):
+        """Compute subparticle center in the original micrograph frame.
+
+        Coordinate frames:
+        - subpartCoord (x/y): particle-box image frame, top-left origin.
+        - xOffset/yOffset: particle-centered frame (subtract half box size).
+        - particleCoord + offset: original micrograph frame.
+        """
+        xOffset = subpartCoord.getX() - halfParticleDim
+        yOffset = subpartCoord.getY() - halfParticleDim
+        xpos = int(particleCoord.getX() + xOffset)
+        ypos = int(particleCoord.getY() + yOffset)
+
+        return xpos, ypos
 
     # -------------------------- INFO functions -------------------------------
     def _validate(self):
