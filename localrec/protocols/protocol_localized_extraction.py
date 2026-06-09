@@ -130,12 +130,14 @@ class ProtLocalizedExtraction(ProtParticles):
             outputSet.setSamplingRate(outputSampling)
 
         boxSize = self.boxSize.get()
+        self._setOutputSetDimensions(outputSet, boxSize)
         halfParticleDim = inputParticles.getXDim() / 2.0
         center = np.zeros((boxSize, boxSize))
 
         ih = ImageHandler()
 
-        i = 0
+        outIndex = 0
+        firstOutputValidated = False
         discardedOutliers = 0
         paddedOutliers = 0
         partIdExcluded = []
@@ -146,10 +148,10 @@ class ProtLocalizedExtraction(ProtParticles):
         progress = ProgressBar(len(inputCoords), fmt=ProgressBar.NOBAR)
         progress.start()
         step = max(100, len(inputCoords) // 100)
-        for i, coord in enumerate(inputCoords.iterItems(orderBy=['_subparticle._micId',
-                                                    '_micId', 'id'])):
-            if i % step == 0:
-                progress.update(i+1)
+        for coordIndex, coord in enumerate(inputCoords.iterItems(
+                orderBy=['_subparticle._micId', '_micId', 'id'])):
+            if coordIndex % step == 0:
+                progress.update(coordIndex + 1)
 
             # The original particle id is stored in the sub-particle as micId
             partId = coord._micId.get()
@@ -226,8 +228,12 @@ class ProtLocalizedExtraction(ProtParticles):
 
                 center[:, :] = centerData
                 outputImg.setData(center)
-                i += 1
-                outputImg.write((i, outputStack))
+                outIndex += 1
+                outputImg.write((outIndex, outputStack))
+                if not firstOutputValidated:
+                    self._validateWrittenOutputImage(ih, outputStack, outIndex,
+                                                     boxSize)
+                    firstOutputValidated = True
                 subpart = coord._subparticle
                 if (not missingProvenanceWarned and
                         not has_subparticle_provenance(subpart)):
@@ -241,9 +247,9 @@ class ProtLocalizedExtraction(ProtParticles):
                     self._scaleSubparticleOriginShift(
                         subpart, particleSampling / outputSampling)
                 subpart.setLocation(
-                    (i, outputStack))  # Change path to new stack
-                # Ids will be always the same no matter the number of outliers.
-                subpart.setObjId(i)
+                    (outIndex, outputStack))  # Change path to new stack
+                # Ids will be always contiguous despite skipped outliers.
+                subpart.setObjId(outIndex)
                 outputSet.append(subpart)
 
         progress.finish()
@@ -258,6 +264,53 @@ class ProtLocalizedExtraction(ProtParticles):
         outputSet.setIsSubparticles(True)
         self._defineOutputs(**{self.OUTPUTPARTICLESNAME: outputSet})
         self._defineSourceRelation(self.inputParticles, outputSet)
+
+
+    @staticmethod
+    def _setOutputSetDimensions(outputSet, boxSize):
+        """Set output particle dimensions without reading the first item.
+
+        Localized extraction can emit subparticles with a box size that differs
+        from the parent particles.  Record those dimensions eagerly so Scipion
+        does not need to infer them by opening the first output stack item while
+        the set is being defined.
+        """
+        boxDim = (boxSize, boxSize, 1)
+
+        if hasattr(outputSet, 'setDim'):
+            outputSet.setDim(boxDim)
+            return
+
+        if hasattr(outputSet, 'setDimensions'):
+            outputSet.setDimensions(boxDim)
+            return
+
+        dimensions = getattr(outputSet, '_dimensions', None)
+        if dimensions is not None:
+            dimText = '%d %d %d' % boxDim
+            if hasattr(dimensions, 'set'):
+                dimensions.set(dimText)
+            else:
+                outputSet._dimensions = dimText
+
+    @staticmethod
+    def _validateWrittenOutputImage(ih, outputStack, outIndex, boxSize):
+        """Ensure the first written subparticle can be read as boxSize x boxSize."""
+        location = (outIndex, outputStack)
+        try:
+            img = ih.read(location)
+        except Exception as exc:
+            raise RuntimeError(
+                'Could not read the first extracted subparticle from %s at '
+                'index %d; expected a %dx%d image.'
+                % (outputStack, outIndex, boxSize, boxSize)) from exc
+
+        xDim, yDim, _, _ = img.getDimensions()
+        if xDim != boxSize or yDim != boxSize:
+            raise RuntimeError(
+                'First extracted subparticle in %s at index %d has dimensions '
+                '%dx%d, but expected %dx%d.'
+                % (outputStack, outIndex, xDim, yDim, boxSize, boxSize))
 
     @staticmethod
     def _getSamplingRate(itemSet):
