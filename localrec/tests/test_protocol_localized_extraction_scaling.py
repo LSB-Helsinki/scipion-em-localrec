@@ -58,6 +58,71 @@ class TestLocalizedExtractionScaling(unittest.TestCase):
         self.assertEqual(downsampled.shape, (4, 4))
         np.testing.assert_allclose(downsampled, 7, rtol=1e-6)
 
+    def test_output_set_dimensions_uses_set_dim(self):
+        class DummySet:
+            def __init__(self):
+                self.dim = None
+
+            def setDim(self, dim):
+                self.dim = dim
+
+        outputSet = DummySet()
+
+        ProtLocalizedExtraction._setOutputSetDimensions(outputSet, 26)
+
+        self.assertEqual(outputSet.dim, (26, 26, 1))
+
+    def test_output_set_dimensions_falls_back_to_dimensions_attribute(self):
+        class DummyDimensions:
+            def __init__(self):
+                self.value = None
+
+            def set(self, value):
+                self.value = value
+
+        class DummySet:
+            def __init__(self):
+                self._dimensions = DummyDimensions()
+
+        outputSet = DummySet()
+
+        ProtLocalizedExtraction._setOutputSetDimensions(outputSet, 26)
+
+        self.assertEqual(outputSet._dimensions.value, '26 26 1')
+
+    def test_validate_written_output_image_accepts_matching_dimensions(self):
+        class DummyImage:
+            def getDimensions(self):
+                return 26, 26, 1, 1
+
+        class DummyImageHandler:
+            def __init__(self):
+                self.location = None
+
+            def read(self, location):
+                self.location = location
+                return DummyImage()
+
+        ih = DummyImageHandler()
+
+        ProtLocalizedExtraction._validateWrittenOutputImage(
+            ih, 'particles.mrcs', 1, 26)
+
+        self.assertEqual(ih.location, (1, 'particles.mrcs'))
+
+    def test_validate_written_output_image_rejects_bad_dimensions(self):
+        class DummyImage:
+            def getDimensions(self):
+                return 24, 24, 1, 1
+
+        class DummyImageHandler:
+            def read(self, location):
+                return DummyImage()
+
+        with self.assertRaisesRegex(RuntimeError, 'expected 26x26'):
+            ProtLocalizedExtraction._validateWrittenOutputImage(
+                DummyImageHandler(), 'particles.mrcs', 1, 26)
+
 
 if __name__ == '__main__':
     unittest.main()
