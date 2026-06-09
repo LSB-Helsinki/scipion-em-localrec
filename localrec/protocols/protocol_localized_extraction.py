@@ -130,8 +130,7 @@ class ProtLocalizedExtraction(ProtParticles):
             outputSet.setSamplingRate(outputSampling)
 
         boxSize = self.boxSize.get()
-        halfParticleXDim = inputParticles.getXDim() / 2.0
-        halfParticleYDim = inputParticles.getYDim() / 2.0
+        halfParticleDim = inputParticles.getXDim() / 2.0
         center = np.zeros((boxSize, boxSize))
 
         ih = ImageHandler()
@@ -200,8 +199,8 @@ class ProtLocalizedExtraction(ProtParticles):
                         continue
                     particle = inputParticles[partId]
                     particleCoord = particle.getCoordinate()
-                    xOffset = coord.getX() - halfParticleXDim
-                    yOffset = coord.getY() - halfParticleYDim
+                    xOffset = coord.getX() - halfParticleDim
+                    yOffset = coord.getY() - halfParticleDim
                     xpos, ypos = self._computeMicrographCropCenter(
                         particleCoord.getX(), particleCoord.getY(),
                         xOffset, yOffset, coordMicSampling, particleSampling,
