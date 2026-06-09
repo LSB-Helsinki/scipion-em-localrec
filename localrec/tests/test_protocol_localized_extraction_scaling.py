@@ -49,6 +49,27 @@ class TestLocalizedExtractionScaling(unittest.TestCase):
 
         self.assertEqual((xpos, ypos), (55, 94))
 
+    def test_display_center_keeps_parent_micrograph_grid(self):
+        # Parent particles and extracted subparticles are both downsampled 2x.
+        # Display coordinates must stay in the parent/downsampled coordinate
+        # grid instead of being expanded back onto the full-resolution mic grid.
+        cropX, cropY = ProtLocalizedExtraction._computeMicrographCropCenter(
+            particleX=100, particleY=200, xOffset=5, yOffset=-6,
+            coordMicSampling=2.0, particleSampling=2.0,
+            outputSampling=2.0)
+        displayX, displayY = (
+            ProtLocalizedExtraction._computeMicrographDisplayCenter(
+                particleX=100, particleY=200, xOffset=5, yOffset=-6,
+                coordMicSampling=2.0, particleSampling=2.0))
+        fullResX, fullResY = ProtLocalizedExtraction._computeMicrographCropCenter(
+            particleX=100, particleY=200, xOffset=5, yOffset=-6,
+            coordMicSampling=2.0, particleSampling=2.0,
+            outputSampling=1.0)
+
+        self.assertEqual((cropX, cropY), (105, 194))
+        self.assertEqual((displayX, displayY), (105, 194))
+        self.assertEqual((fullResX, fullResY), (210, 388))
+
     def test_fourier_downsampling_preserves_constant_micrograph_level(self):
         data = np.ones((8, 8), dtype=np.float32) * 7
 
