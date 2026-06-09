@@ -203,16 +203,16 @@ class ProtLocalizedExtraction(ProtParticles):
                     particleCoord = particle.getCoordinate()
                     xOffset = coord.getX() - halfParticleDim
                     yOffset = coord.getY() - halfParticleDim
-                    xpos, ypos = self._computeMicrographCropCenter(
+                    cropX, cropY = self._computeMicrographCropCenter(
                         particleCoord.getX(), particleCoord.getY(),
                         xOffset, yOffset, coordMicSampling, particleSampling,
                         outputSampling)
-                    outputX, outputY = self._computeMicrographCropCenter(
+                    displayX, displayY = self._computeMicrographDisplayCenter(
                         particleCoord.getX(), particleCoord.getY(),
-                        xOffset, yOffset, coordMicSampling, particleSampling,
-                        micSampling)
+                        xOffset, yOffset, coordMicSampling, particleSampling)
                     outputCoord = self._cloneMicrographCoordinate(
-                        coord, particleCoord, outputX, outputY, partId)
+                        coord, particleCoord, displayX, displayY, partId)
+                    xpos, ypos = cropX, cropY
                 else:
                     xpos = coord.getX()
                     ypos = coord.getY()
@@ -342,6 +342,22 @@ class ProtLocalizedExtraction(ProtParticles):
         ypos = (particleY * coordMicSampling / outputSampling +
                 yOffset * particleSampling / outputSampling)
         return int(round(xpos)), int(round(ypos))
+
+    @classmethod
+    def _computeMicrographDisplayCenter(cls, particleX, particleY, xOffset,
+                                        yOffset, coordMicSampling,
+                                        particleSampling):
+        """Return subparticle coordinates in the parent micrograph grid.
+
+        Extracted subparticles keep the parent particles' micrograph linkage,
+        so stored coordinates must use the same micrograph grid as the parent
+        coordinates.  This prevents display coordinates from being multiplied
+        by the original full-resolution micrograph sampling when extraction is
+        performed on an internally downsampled micrograph.
+        """
+        return cls._computeMicrographCropCenter(
+            particleX, particleY, xOffset, yOffset, coordMicSampling,
+            particleSampling, coordMicSampling)
 
     def _getParticleCoordinateMicSampling(self, inputParticles,
                                           inputMicrographs):
