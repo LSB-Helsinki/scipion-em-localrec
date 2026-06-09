@@ -209,7 +209,8 @@ class ProtLocalizedExtraction(ProtParticles):
                         outputSampling)
                     displayX, displayY = self._computeMicrographDisplayCenter(
                         particleCoord.getX(), particleCoord.getY(),
-                        xOffset, yOffset, coordMicSampling, particleSampling)
+                        xOffset, yOffset, coordMicSampling, particleSampling,
+                        micSampling)
                     outputCoord = self._cloneMicrographCoordinate(
                         coord, particleCoord, displayX, displayY, partId)
                     xpos, ypos = cropX, cropY
@@ -346,18 +347,19 @@ class ProtLocalizedExtraction(ProtParticles):
     @classmethod
     def _computeMicrographDisplayCenter(cls, particleX, particleY, xOffset,
                                         yOffset, coordMicSampling,
-                                        particleSampling):
-        """Return subparticle coordinates in the parent micrograph grid.
+                                        particleSampling, micSampling):
+        """Return subparticle coordinates in the source micrograph grid.
 
-        Extracted subparticles keep the parent particles' micrograph linkage,
-        so stored coordinates must use the same micrograph grid as the parent
-        coordinates.  This prevents display coordinates from being multiplied
-        by the original full-resolution micrograph sampling when extraction is
-        performed on an internally downsampled micrograph.
+        Extraction may downsample the micrograph internally, but the coordinate
+        stored in the output subparticle must remain suitable for displaying on
+        the original source micrograph.  Therefore both the micrograph sampling
+        used by the parent particle coordinates and the parent-particle sampling
+        are converted to the provided source micrograph sampling, while the
+        extraction-only downsampling factor is intentionally ignored here.
         """
         return cls._computeMicrographCropCenter(
             particleX, particleY, xOffset, yOffset, coordMicSampling,
-            particleSampling, coordMicSampling)
+            particleSampling, micSampling)
 
     def _getParticleCoordinateMicSampling(self, inputParticles,
                                           inputMicrographs):
