@@ -234,7 +234,7 @@ class ProtLocalizedExtraction(ProtParticles):
                     self._validateWrittenOutputImage(ih, outputStack, outIndex,
                                                      boxSize)
                     firstOutputValidated = True
-                subpart = coord._subparticle
+                subpart = coord._subparticle.clone()
                 if (not missingProvenanceWarned and
                         not has_subparticle_provenance(subpart)):
                     self.warning("Subparticle provenance fields "
@@ -385,6 +385,7 @@ class ProtLocalizedExtraction(ProtParticles):
                                    parentParticleId):
         """Clone a coordinate and set it in source-micrograph coordinates."""
         outputCoord = coord.clone()
+        ProtLocalizedExtraction._sanitizeOutputCoordinate(outputCoord)
         outputCoord.setX(xpos)
         outputCoord.setY(ypos)
         outputCoord.setMicId(particleCoord.getMicId())
@@ -396,6 +397,19 @@ class ProtLocalizedExtraction(ProtParticles):
         else:
             outputCoord._parentParticleId = parentParticleId
         return outputCoord
+
+    @staticmethod
+    def _sanitizeOutputCoordinate(coord):
+        """Remove localized-coordinate payloads before storing in a particle.
+
+        Coordinates produced by localized reconstruction carry the source
+        subparticle in ``_subparticle``.  Keeping that nested particle inside the
+        coordinate of an extracted output particle causes Scipion's SQLite mapper
+        to see many more fields than the output SetOfParticles schema contains.
+        """
+        if hasattr(coord, '_subparticle'):
+            delattr(coord, '_subparticle')
+        return coord
 
     @staticmethod
     def _scaleSubparticleOriginShift(subpart, scale):

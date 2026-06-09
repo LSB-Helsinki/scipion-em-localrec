@@ -123,6 +123,73 @@ class TestLocalizedExtractionScaling(unittest.TestCase):
             ProtLocalizedExtraction._validateWrittenOutputImage(
                 DummyImageHandler(), 'particles.mrcs', 1, 26)
 
+    def test_clone_micrograph_coordinate_removes_nested_subparticle(self):
+        class DummyValue:
+            def __init__(self, value):
+                self.value = value
+
+            def clone(self):
+                return DummyValue(self.value)
+
+            def get(self):
+                return self.value
+
+        class DummyCoordinate:
+            def __init__(self):
+                self.x = None
+                self.y = None
+                self.micId = None
+                self.micName = None
+                self._micId = DummyValue(7)
+                self._subparticle = object()
+
+            def clone(self):
+                clone = DummyCoordinate()
+                clone._micId = self._micId
+                clone._subparticle = self._subparticle
+                return clone
+
+            def setX(self, value):
+                self.x = value
+
+            def setY(self, value):
+                self.y = value
+
+            def setMicId(self, value):
+                self.micId = value
+
+            def setMicName(self, value):
+                self.micName = value
+
+        class DummyParticleCoordinate:
+            def getMicId(self):
+                return 3
+
+            def getMicName(self):
+                return 'mic-a'
+
+        outputCoord = ProtLocalizedExtraction._cloneMicrographCoordinate(
+            DummyCoordinate(), DummyParticleCoordinate(), 11, 13, 7)
+
+        self.assertFalse(hasattr(outputCoord, '_subparticle'))
+        self.assertEqual(outputCoord.x, 11)
+        self.assertEqual(outputCoord.y, 13)
+        self.assertEqual(outputCoord.micId, 3)
+        self.assertEqual(outputCoord.micName, 'mic-a')
+        self.assertEqual(outputCoord._parentParticleId.get(), 7)
+
+    def test_sanitize_output_coordinate_returns_coordinate(self):
+        class DummyCoordinate:
+            pass
+
+        coord = DummyCoordinate()
+        coord._subparticle = object()
+
+        sanitized = ProtLocalizedExtraction._sanitizeOutputCoordinate(coord)
+
+        self.assertIs(sanitized, coord)
+        self.assertFalse(hasattr(coord, '_subparticle'))
+
 
 if __name__ == '__main__':
     unittest.main()
