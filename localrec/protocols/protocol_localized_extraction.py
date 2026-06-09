@@ -27,9 +27,9 @@ import numpy as np
 
 from pyworkflow import VERSION_1_2
 from pwem.emlib.image import ImageHandler
-from pyworkflow.protocol.params import PointerParam, BooleanParam, LEVEL_ADVANCED
+from pyworkflow.protocol.params import (PointerParam, BooleanParam,
+                                        LEVEL_ADVANCED, FloatParam, IntParam)
 from pwem.protocols import ProtParticles
-from pyworkflow.protocol.params import IntParam
 
 # eventually progressbar will be move to scipion core
 from pyworkflow.utils import ProgressBar
@@ -73,10 +73,22 @@ class ProtLocalizedExtraction(ProtParticles):
                            'particles. This must match the original '
                            'micrographs.')
 
+        form.addParam('downFactor', FloatParam, default=1.0,
+                      condition='extractFromMicrographs',
+                      label='Micrograph downsampling factor',
+                      help='Downsample the input micrographs before extracting '
+                           'subparticles. Use 1.0 for no downsampling. If '
+                           'parent particles were previously extracted with a '
+                           'downsampling factor from full-resolution '
+                           'micrographs, use the same factor here to preserve '
+                           'the output sampling rate.')
+
         form.addParam('boxSize', IntParam,
                       label='Subparticle box size (px)',
-                      help='Select the amount of pixels to extract the '
-                           'sub-particles.')
+                      help='Select the output sub-particle box size in pixels. '
+                           'When extracting from micrographs with a '
+                           'downsampling factor, this is the final box size '
+                           'after micrograph downsampling.')
         form.addParam('extractAll', BooleanParam, default=False,
                       expertLevel=LEVEL_ADVANCED,
                       label='Extract all',
@@ -105,9 +117,22 @@ class ProtLocalizedExtraction(ProtParticles):
         outputSet = self._createSetOfParticles()
         outputSet.copyInfo(inputParticles)
 
+        extractFromMicrographs = self.extractFromMicrographs.get()
+        downFactor = self._getExtractionDownFactor()
+        particleSampling = self._getSamplingRate(inputParticles)
+        micSampling = (self._getSamplingRate(inputMicrographs)
+                       if extractFromMicrographs else None)
+        coordMicSampling = (self._getParticleCoordinateMicSampling(
+            inputParticles, inputMicrographs) if extractFromMicrographs else None)
+        outputSampling = (micSampling * downFactor
+                          if extractFromMicrographs else particleSampling)
+        if extractFromMicrographs:
+            outputSet.setSamplingRate(outputSampling)
+
         boxSize = self.boxSize.get()
-        b2 = int(round(boxSize / 2))
-        halfParticleDim = int(round(inputParticles.getXDim() / 2))
+        particleXDim, particleYDim = self._getParticleDimensions(inputParticles)
+        halfParticleXDim = particleXDim / 2.0
+        halfParticleYDim = particleYDim / 2.0
         center = np.zeros((boxSize, boxSize))
 
         ih = ImageHandler()
@@ -140,7 +165,7 @@ class ProtLocalizedExtraction(ProtParticles):
                     self.info("WARNING: Missing particle with id %s from "
                               "input particles set" % partId)
                 else:
-                    if self.extractFromMicrographs.get():
+                    if extractFromMicrographs:
                         particleCoord = particle.getCoordinate()
                         micId = particleCoord.getMicId()
                         if micId != lastMicId:
@@ -153,8 +178,9 @@ class ProtLocalizedExtraction(ProtParticles):
                                 data = None
                             else:
                                 img = ih.read(mic)
-                                x, y, _, _ = img.getDimensions()
                                 data = img.getData()
+                                data = self._downsampleMicrographData(
+                                    data, downFactor)
                                 lastMicId = micId
                     else:
                         # Load the particle image to extract later sub-particles
@@ -168,16 +194,25 @@ class ProtLocalizedExtraction(ProtParticles):
             # generated. Now, subtract from a subset of original particles is
             # supported.
             if partId not in partIdExcluded:
-                if self.extractFromMicrographs.get():
+                outputCoord = None
+                if extractFromMicrographs:
                     if data is None:
                         discardedOutliers += 1
                         continue
                     particle = inputParticles[partId]
                     particleCoord = particle.getCoordinate()
-                    xOffset = coord.getX() - halfParticleDim
-                    yOffset = coord.getY() - halfParticleDim
-                    xpos = int(particleCoord.getX() + xOffset)
-                    ypos = int(particleCoord.getY() + yOffset)
+                    xOffset = coord.getX() - halfParticleXDim
+                    yOffset = coord.getY() - halfParticleYDim
+                    xpos, ypos = self._computeMicrographCropCenter(
+                        particleCoord.getX(), particleCoord.getY(),
+                        xOffset, yOffset, coordMicSampling, particleSampling,
+                        outputSampling)
+                    outputX, outputY = self._computeMicrographCropCenter(
+                        particleCoord.getX(), particleCoord.getY(),
+                        xOffset, yOffset, coordMicSampling, particleSampling,
+                        micSampling)
+                    outputCoord = self._cloneMicrographCoordinate(
+                        coord, particleCoord, outputX, outputY, partId)
                 else:
                     xpos = coord.getX()
                     ypos = coord.getY()
@@ -203,9 +238,14 @@ class ProtLocalizedExtraction(ProtParticles):
                                  "missing for some items. Continuing without "
                                  "failing.")
                     missingProvenanceWarned = True
+                if extractFromMicrographs:
+                    subpart.setCoordinate(outputCoord)
+                    self._scaleSubparticleOriginShift(
+                        subpart, particleSampling / outputSampling)
                 subpart.setLocation(
                     (i, outputStack))  # Change path to new stack
-                subpart.setObjId(i)  # Ids will be always the same no mater the number of outliers 
+                # Ids will be always the same no matter the number of outliers.
+                subpart.setObjId(i)
                 outputSet.append(subpart)
 
         progress.finish()
@@ -220,6 +260,118 @@ class ProtLocalizedExtraction(ProtParticles):
         outputSet.setIsSubparticles(True)
         self._defineOutputs(**{self.OUTPUTPARTICLESNAME: outputSet})
         self._defineSourceRelation(self.inputParticles, outputSet)
+
+    @staticmethod
+    def _getParticleDimensions(inputParticles):
+        """Return particle X/Y dimensions, supporting square-only sets."""
+        xDim = inputParticles.getXDim()
+        yDim = (inputParticles.getYDim()
+                if hasattr(inputParticles, 'getYDim') else xDim)
+        return xDim, yDim
+
+    @staticmethod
+    def _getSamplingRate(itemSet):
+        """Return a positive sampling rate from a Scipion image set."""
+        if itemSet is None or not hasattr(itemSet, 'getSamplingRate'):
+            return None
+        sampling = itemSet.getSamplingRate()
+        return sampling if sampling and sampling > 0 else None
+
+    def _getExtractionDownFactor(self):
+        """Return the micrograph downsampling factor, preserving old runs."""
+        if not hasattr(self, 'downFactor'):
+            return 1.0
+        downFactor = self.downFactor.get()
+        return float(downFactor) if downFactor else 1.0
+
+    @classmethod
+    def _computeMicrographCropCenter(cls, particleX, particleY, xOffset,
+                                     yOffset, coordMicSampling,
+                                     particleSampling, outputSampling):
+        """Convert parent-center plus subparticle offset to an image grid.
+
+        particleX/Y are in the coordinate micrograph grid, xOffset/yOffset are
+        in the parent particle grid, and the returned crop center is in the
+        output extraction grid.
+        """
+        xpos = (particleX * coordMicSampling / outputSampling +
+                xOffset * particleSampling / outputSampling)
+        ypos = (particleY * coordMicSampling / outputSampling +
+                yOffset * particleSampling / outputSampling)
+        return int(round(xpos)), int(round(ypos))
+
+    def _getParticleCoordinateMicSampling(self, inputParticles,
+                                          inputMicrographs):
+        """Return sampling for the micrograph grid used by particle coords."""
+        particleMics = (inputParticles.getMicrographs()
+                        if hasattr(inputParticles, 'getMicrographs')
+                        else None)
+        sampling = self._getSamplingRate(particleMics)
+        if sampling is None:
+            sampling = self._getSamplingRate(inputMicrographs)
+            self.info('WARNING: Could not determine the sampling rate of the '
+                      'micrographs associated with input particles. Assuming '
+                      'input particle coordinates use the provided micrograph '
+                      'sampling rate.')
+        return sampling
+
+    @staticmethod
+    def _downsampleMicrographData(data, downFactor):
+        """Fourier-downsample a micrograph array before extraction."""
+        if downFactor <= 1.0:
+            return data
+
+        yDim, xDim = data.shape[:2]
+        newYDim = int(round(yDim / downFactor))
+        newXDim = int(round(xDim / downFactor))
+        if newYDim <= 0 or newXDim <= 0:
+            raise ValueError('Invalid downsampling factor %.3f for micrograph '
+                             'dimensions %dx%d.' % (downFactor, xDim, yDim))
+
+        spectrum = np.fft.fftshift(np.fft.fft2(data))
+        yStart = max((yDim - newYDim) // 2, 0)
+        xStart = max((xDim - newXDim) // 2, 0)
+        cropped = spectrum[yStart:yStart + newYDim,
+                           xStart:xStart + newXDim]
+        downsampled = np.fft.ifft2(np.fft.ifftshift(cropped)).real
+        downsampled *= (float(newYDim * newXDim) / float(yDim * xDim))
+        return downsampled.astype(data.dtype, copy=False)
+
+    @staticmethod
+    def _cloneMicrographCoordinate(coord, particleCoord, xpos, ypos,
+                                   parentParticleId):
+        """Clone a coordinate and set it in source-micrograph coordinates."""
+        outputCoord = coord.clone()
+        outputCoord.setX(xpos)
+        outputCoord.setY(ypos)
+        outputCoord.setMicId(particleCoord.getMicId())
+        if (hasattr(particleCoord, 'getMicName') and
+                hasattr(outputCoord, 'setMicName')):
+            outputCoord.setMicName(particleCoord.getMicName())
+        if hasattr(coord, '_micId'):
+            outputCoord._parentParticleId = coord._micId.clone()
+        else:
+            outputCoord._parentParticleId = parentParticleId
+        return outputCoord
+
+    @staticmethod
+    def _scaleSubparticleOriginShift(subpart, scale):
+        """Scale in-plane fractional shifts when output sampling changes."""
+        if scale is None or abs(scale - 1.0) < 1e-6:
+            return
+
+        for attrName in ('getTransform', '_transorg'):
+            if attrName == 'getTransform':
+                transform = (subpart.getTransform()
+                             if hasattr(subpart, 'getTransform') else None)
+            else:
+                transform = getattr(subpart, attrName, None)
+            if transform is None or not hasattr(transform, 'getMatrix'):
+                continue
+            matrix = np.array(transform.getMatrix(), copy=True)
+            matrix[0, 3] *= scale
+            matrix[1, 3] *= scale
+            transform.setMatrix(matrix)
 
     @staticmethod
     def _extractWindowWithPadding(data, xpos, ypos, boxSize, extractAll):
@@ -261,11 +413,34 @@ class ProtLocalizedExtraction(ProtParticles):
             errors.append('The selected input coordinates does not are the '
                           'output from a localized-subparticles protocol.')
         if self.extractFromMicrographs.get():
+            downFactor = self._getExtractionDownFactor()
+            if downFactor < 1.0:
+                errors.append('Micrograph downsampling factor must be >= 1.0.')
+
+            particleSampling = self._getSamplingRate(inputParticles)
+            if particleSampling is None:
+                errors.append('Input particles do not define a valid sampling '
+                              'rate.')
+
             if self.inputMicrographs.get() is None:
                 errors.append('Micrographs input is required when "Extract '
                               'from micrographs?" is set to Yes.')
             else:
-                inputMicIds = {m.getObjId() for m in self.inputMicrographs.get()}
+                inputMicrographs = self.inputMicrographs.get()
+                micSampling = self._getSamplingRate(inputMicrographs)
+                if micSampling is None:
+                    errors.append('Input micrographs do not define a valid '
+                                  'sampling rate.')
+                elif particleSampling is not None:
+                    expectedDownFactor = particleSampling / micSampling
+                    if abs(expectedDownFactor - downFactor) > 1e-3:
+                        self.info('WARNING: Input particle sampling suggests a '
+                                  'micrograph downsampling factor of %.4f, but '
+                                  '%.4f was selected. This is valid if you '
+                                  'intentionally want a different output '
+                                  'sampling.' % (expectedDownFactor, downFactor))
+
+                inputMicIds = {m.getObjId() for m in inputMicrographs}
 
                 particleMicIds = set()
                 particleMics = (inputParticles.getMicrographs()
@@ -302,7 +477,15 @@ class ProtLocalizedExtraction(ProtParticles):
 
     def _summary(self):
         summary = []
+        if self.extractFromMicrographs.get():
+            inputMicrographs = self.inputMicrographs.get()
+            micSampling = self._getSamplingRate(inputMicrographs)
+            downFactor = self._getExtractionDownFactor()
+            if micSampling is not None:
+                summary.append('Extracted from micrographs with downsampling '
+                               'factor %.4f and output sampling %.4f.'
+                               % (downFactor, micSampling * downFactor))
         return summary
 
     def _methods(self):
-        return []
+        return self._summary()
